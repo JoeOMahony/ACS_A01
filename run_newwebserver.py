@@ -23,3 +23,6 @@ print('==========================')
 s3_bucket = s3.create_bucket(s3_client, ec2_instance_id)
 print('S3 Bucket created : ', s3_bucket)
 print('==========================')
+
+obj = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, "Test")
+print('S3 obj: ' + obj)
