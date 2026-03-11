@@ -153,10 +153,10 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
         InstanceIds=[
                 created_instance_id,
         ],
-        WaiterConfig={ # "A dictionary that provides parameters to control waiting behavior.'
-            'Delay': 30, # seconds, 15 default
-            'MaxAttempts': 20 # default 40
-        },
+        # WaiterConfig={ # "A dictionary that provides parameters to control waiting behavior.'
+        #     'Delay': 30, # seconds, 15 default
+        #     'MaxAttempts': 20 # default 40
+        # },
     )
 
     return created_instance_id
