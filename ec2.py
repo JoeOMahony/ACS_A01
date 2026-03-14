@@ -1,3 +1,5 @@
+from botocore.exceptions import ClientError
+
 def get_default_vpc_id(ec2_client):
     """
     Function to return the ID of the default VPC.
@@ -14,14 +16,14 @@ def get_default_vpc_id(ec2_client):
     :return: default_vpc_id The default VPC ID
     """
     default_vpc = ec2_client.describe_vpcs(
-    Filters=[
-        {
-            'Name': 'is-default',
-            'Values': [
-                'true',
-            ]
-        },
-    ],
+        Filters=[
+            {
+                'Name': 'is-default',
+                'Values': [
+                    'true',
+                ]
+            },
+        ],
     )
     # Default VPCs [dict] | VPC entry 0 [list] | VpcId (string) [dict]
     default_vpc_id = default_vpc['Vpcs'][0]['VpcId']
@@ -48,7 +50,7 @@ def get_subnet_id_default_vpc(ec2_client):
             {
                 'Name': 'vpc-id',
                 'Values': [
-                   default_vpc_id,
+                    default_vpc_id,
                 ]
             },
         ],
@@ -59,6 +61,8 @@ def get_subnet_id_default_vpc(ec2_client):
 
 def get_security_group_id_default_vpc(ec2_client):
     """
+    **DEPRECATED!** => USE create_security_group()
+
     Function to return the ID of the default security group associated with the default VPC.
 
     - Takes the EC2 client handle as an argument.
@@ -88,6 +92,68 @@ def get_security_group_id_default_vpc(ec2_client):
     # Security groups [dict] | security group 0 [list] | security group ID [dict]
     security_group_id = security_groups['SecurityGroups'][0]['GroupId']
     return security_group_id
+
+def create_security_group(ec2_client, ec2_resource):
+    """
+
+    Boto3 documentation for 'Working with SGs in Amazon EC2'
+    https://docs.aws.amazon.com/boto3/latest/guide/ec2-example-security-group.html
+
+    Boto3 documentation for EC2.Client.describe_security_groups(**kwargs)
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/describe_security_groups.html
+
+    Boto3 documentation for EC2.Client.authorize_security_group_ingress(**kwargs)
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/authorize_security_group_ingress.html
+
+    Boto3 documentation for EC2 Resource handle security_groups
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/service-resource/security_groups.html
+
+    :param ec2_client:
+    :return:
+    """
+    vpc_id = get_default_vpc_id(ec2_client)
+
+    try:
+        # # Need to make sure it doesn't already exist for testing or error
+        # security_groups = list(ec2_resource.security_groups.filter(
+        #     Filters=[
+        #         {'Name': 'group-name',
+        #          'Values': ['EC2_public_access']},
+        #     ]
+        # ))
+        #
+        # if security_groups:
+        #     return security_groups[0].id
+
+        response = ec2_client.create_security_group(GroupName='EC2_public_access',
+                                                    Description='Joe OMahony ACS Assignment01)', # No apostrophe for O'Mahony
+                                                    VpcId=vpc_id)
+
+        security_group_id = response['GroupId']
+
+        ec2_client.authorize_security_group_ingress(
+            GroupId=security_group_id,
+            IpPermissions=[
+                {'IpProtocol': 'tcp',
+                 'FromPort': 80,
+                 'ToPort': 80,
+                 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
+                {'IpProtocol': 'tcp',
+                 'FromPort': 443,
+                 'ToPort': 443,
+                 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
+                {'IpProtocol': 'tcp', # SSH
+                 'FromPort': 22,
+                 'ToPort': 22,
+                 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
+            ],
+        )
+
+    except ClientError as err:
+        return err
+
+    return security_group_id
+
 
 def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     """
@@ -122,14 +188,14 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     :return: created_instance_id EC2 instance ID
     """
     default_subnet_id = get_subnet_id_default_vpc(ec2_client)
-    default_security_group_id = get_security_group_id_default_vpc(ec2_client)
+    # default_security_group_id = get_security_group_id_default_vpc(ec2_client)
     instance = ec2_resource.create_instances(
         ImageId='ami-0f3caa1cf4417e51b', # latest Amazon Linux LTS AMI
         MinCount=1,
         MaxCount=1,
         InstanceType='t2.nano',
         SecurityGroupIds=[
-            default_security_group_id,
+            create_security_group(ec2_client, ec2_resource),
         ],
         SubnetId=default_subnet_id,
         UserData=user_data,
@@ -151,9 +217,9 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     waiter = ec2_client.get_waiter('instance_running')
     waiter.wait(
         InstanceIds=[
-                created_instance_id,
+            created_instance_id,
         ],
-        # WaiterConfig={ # "A dictionary that provides parameters to control waiting behavior.'
+        # WaiterConfig={ # 'A dictionary that provides parameters to control waiting behavior.'
         #     'Delay': 30, # seconds, 15 default
         #     'MaxAttempts': 20 # default 40
         # },
@@ -161,16 +227,86 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
 
     return created_instance_id
 
-# NetworkInterfaces=[
-#             {
-#                 'AssociatePublicIpAddress': True | False,
-#             }
-#         ]
+def terminate_instances(ec2_resource, instance_ids):
+    """
+    Function that takes a list of EC2 instance IDs and terminates them.
 
-def get_all_instances(ec2_resource):
+    :param ec2_resource: EC2 Resource handle
+    :param instance_ids: List of EC2 instance IDs
+    :return: responses List of instance terminated responses
+    """
+    responses = []
+
+    for instance_id in instance_ids:
+        instance = ec2_resource.Instance(instance_id)
+        termination_response = instance.terminate()
+        responses.append(termination_response)
+
+    return responses
+
+def get_all_instances_str(ec2_resource):
+    """
+    Function that returns a list of all EC2 instance details
+
+    Boto3 documentation for Resource handle EC2 instances
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/service-resource/instances.html
+
+    Boto3 documentation for EC2 instance states
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/instance/state.html
+
+    :param ec2_resource: EC2 Resource handle
+    :return: List of Dictionary EC2 instance details
+    """
+    pending_instances = []
+    running_instances = []
+    shutting_down_instances = []
+    terminated_instances = []
+    stopping_instances = []
+    stopped_instances = []
+
+    for instance in ec2_resource.instances.all():  # returns a list(ec2.instance)
+        if instance.state['Name'] == 'pending':
+            pending_instances.append(instance.instance_id)
+        elif instance.state['Name'] == 'running':
+            running_instances.append(instance.instance_id)
+        elif instance.state['Name'] == 'shutting-down':
+            shutting_down_instances.append(instance.instance_id)
+        elif instance.state['Name'] == 'terminated':
+            terminated_instances.append(instance.instance_id)
+        elif instance.state['Name'] == 'stopping':
+            stopping_instances.append(instance.instance_id)
+        else:
+            stopped_instances.append(instance.instance_id) # stopped
+
+    instance_string = "All EC2 Instances:\n"
+
+    if len(pending_instances) > 0:
+        instance_string += f"\t{len(pending_instances)} pending EC2 instance(s) =>  " + str(pending_instances) + "\n"
+    if len(running_instances) > 0:
+        instance_string += f"\t{len(running_instances)} running EC2 instance(s) => " + str(running_instances) + "\n"
+    if len(shutting_down_instances) > 0:
+        instance_string += f"\t{len(shutting_down_instances)} shutting down EC2 instance(s) => " + str(shutting_down_instances) + "\n"
+    if len(terminated_instances) > 0:
+        instance_string += f"\t{len(terminated_instances)} terminated EC2 instance(s) => " + str(terminated_instances) + "\n"
+    if len(stopping_instances) > 0:
+        instance_string += f"\t{len(stopping_instances)} stopping EC2 instance(s) => " + str(stopping_instances) + "\n"
+    if len(stopped_instances) > 0:
+        instance_string += f"\t{len(stopped_instances)} stopped EC2 instance(s) => " + str(stopped_instances)
+
+    return instance_string
+
+
+def get_unterminated_instances(ec2_resource):
+    """
+    Function that returns a list of all unterminated EC2 instance IDs
+
+    :param ec2_resource: EC2 Resource handle
+    :return: instances List of unterminated EC2 instance IDs
+    """
     instances = []
 
     for instance in ec2_resource.instances.all():
-        instances.append(instance)
+        if instance.state['Name'] != 'terminated':
+            instances.append(instance.instance_id)
 
     return instances

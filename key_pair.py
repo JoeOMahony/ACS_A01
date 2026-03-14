@@ -29,9 +29,29 @@ def create_key_pair(ec2_client):
         ]
     )
     return response
-"""
-Basic test for the create_key_pair() function through creating a key and printing the output
-"""
-# def test_create_key_pair():
-#     print(create_key_pair())
-# test_create_key_pair()
+
+def delete_key_pair(ec2_client, key_name):
+    """
+    Deletes the argument key-pair
+
+    Boto3 EC2.Client.delete_key_pair(**kwargs) documentation
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_key_pair.html
+
+    :param ec2_client: EC2 client handle
+    :param key_name: Key name of the key-pair to be deleted
+    :return: response Dictionary containing success Boolean and KeyPairId String
+    """
+    response = ec2_client.delete_key_pair(
+        KeyName=key_name,
+    )
+    return response # dict Return Boolean KeyPairId String
+
+def get_all_key_pairs_str(ec2_client):
+    key_pairs = ec2_client.describe_key_pairs() # TYPEERROR => { 'KeyPairs': [ {'KeyName': ...}, {'KeyName': ...} ] }
+
+    key_pairs_str = "All Key Pairs:\n"
+
+    for key_pair in key_pairs['KeyPairs']: # Outer dict iterated leaving List of Dictionaries
+        key_pairs_str += f"\t{key_pair['KeyName']} | {key_pair['KeyPairId']}\n"
+
+    return key_pairs_str
