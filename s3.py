@@ -34,6 +34,9 @@ def create_bucket(s3_client, ec2_instance_id):
     Boto3 documentation for s3_client.delete_public_access_block(**kwargs)
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/delete_public_access_block.html
 
+    Boto3 documentation for s3_client.put_public_access_block(**kwargs)
+    https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
+
     :param s3_client: S3 Client Handle
     :param ec2_instance_id: EC2 Instance ID used in the bucket name -> joe-omahony-[ec2_instance_id]
     :return: bucket Dictionary with the created bucket's attributes
@@ -43,6 +46,7 @@ def create_bucket(s3_client, ec2_instance_id):
     bucket = s3_client.create_bucket(
         # ACL='public-read' (InvalidBucketAclWithObjectOwnership)
         # Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting
+        # ACL='public-read', NEED TO CREATE BUCKET FIRST # Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting
         Bucket=bucket_name,
         CreateBucketConfiguration={
             # 'LocationConstraint': 'us-east-1', (InvalidLocationConstraint)
@@ -53,6 +57,8 @@ def create_bucket(s3_client, ec2_instance_id):
                     ],
         },
         ObjectLockEnabledForBucket=False, # Check later
+        ObjectOwnership = 'BucketOwnerPreferred',
+
     )
 
     # could use s3 resource handle instead of below, but will stick with this to match ec2
@@ -65,19 +71,31 @@ def create_bucket(s3_client, ec2_instance_id):
         Bucket=bucket_name,
     )
 
+# https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
+    s3_client.put_bucket_acl(
+        ACL='public-read',
+        Bucket=bucket_name,
+    )
+
     bucket.update({'BucketName': bucket_name})  # bucket Dict only contains ARN/Location, need to add bucket_name
 
     return bucket
 
 def put_object(s3_client, bucket_name, ec2_instance_id, object):
     """
-    Function which puts an object into the S3 bucket.
+    Function which puts an image object into the S3 bucket.
+
+    Specifies the MIME type, as this is required for images to render/not give an error when its expecting
+     UTF-8 text encoding by default
 
     AWS documentation on naming S3 objects
     https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
 
     Boto3 documentation on S3.Client.put_object(**kwargs)
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html
+
+    Boto3 documentating for upload files (showed me MIME types needed + binary read with open)
+    https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
 
     :param s3_client:
     :param bucket_name:
@@ -87,11 +105,13 @@ def put_object(s3_client, bucket_name, ec2_instance_id, object):
     # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
     object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
     response = s3_client.put_object(
+        ACL='public-read',
         Body=object,
         Bucket=bucket_name,
         Key=object_name,
         # REFERENCE: Full StackOverflow reference for the below Tagging key-pair in function documentation
         Tagging='CreatedBy=JoeOMahony&Module=AutomatedCloudServices&Assignment=AutomatedCloudServices',
+        ContentType='image/png', # MIME type required here for local file upload
     )
 
     return response

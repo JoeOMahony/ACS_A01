@@ -32,18 +32,21 @@ s3_bucket = s3.create_bucket(s3_client, ec2_instance_id)
 print('S3 Bucket created : ', str(s3_bucket)) # TypeError
 print('==========================')
 
-obj = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, sample_script)
+setu_image = open('images/setu.png','rb') # docs specify must be opened in binary mode, then specify MIME type
+# https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
+
+obj = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, setu_image)
 print('S3 object created and put in bucket: ' + str(obj))
 print('==========================')
 
 print(ec2.get_all_instances_str(ec2_resource))
 print('==========================')
 
-# print('All unterminated EC2 instance IDs: ', str(ec2.get_unterminated_instances(ec2_resource)))
-# print('==========================')
+print('All unterminated EC2 instance IDs: ', str(ec2.get_unterminated_instances(ec2_resource)))
+print('==========================')
 #
 # print('Deleting all unterminated EC2 Instances...')
-# print(str(ec2.terminate_instances(ec2_resource, get_unterminated_instances(ec2_resource))))
+# print(str(ec2.terminate_instances(ec2_resource, ec2.get_unterminated_instances(ec2_resource))))
 # # (InvalidInstanceID.Malformed) without str() call
 # print('==========================')
 #

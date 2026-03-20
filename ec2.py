@@ -1,4 +1,5 @@
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, WaiterError
+
 
 def get_default_vpc_id(ec2_client):
     """
@@ -93,7 +94,7 @@ def get_security_group_id_default_vpc(ec2_client):
     security_group_id = security_groups['SecurityGroups'][0]['GroupId']
     return security_group_id
 
-def create_security_group(ec2_client, ec2_resource):
+def create_security_group(ec2_client):
     """
 
     Boto3 documentation for 'Working with SGs in Amazon EC2'
@@ -125,6 +126,13 @@ def create_security_group(ec2_client, ec2_resource):
         # if security_groups:
         #     return security_groups[0].id
 
+        existing_security_groups = ec2_client.describe_security_groups(GroupNames=[
+        'EC2_public_access',
+    ],)
+        # Response dict | first entry in list of security groups | Group Name
+        if existing_security_groups['SecurityGroups'][0]['GroupName'] == 'EC2_public_access':
+            return 'EC2_public_access'
+
         response = ec2_client.create_security_group(GroupName='EC2_public_access',
                                                     Description='Joe OMahony ACS Assignment01)', # No apostrophe for O'Mahony
                                                     VpcId=vpc_id)
@@ -153,6 +161,24 @@ def create_security_group(ec2_client, ec2_resource):
         return err
 
     return security_group_id
+
+def delete_security_group(ec2_client, group_name):
+    """
+
+    Can't have dependent objects for deletion
+https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_security_group.html
+    :param ec2_client:
+    :param ec2_resource:
+    :return:
+    """
+    try:
+        response = ec2_client.delete_security_group(GroupName=group_name)
+        return response # Response Syntax {'Return': True|False,'GroupId': 'string'}
+
+    except ClientError as err:
+        return err
+    except Exception as err:
+        return err
 
 
 def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
@@ -195,9 +221,9 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
         MaxCount=1,
         InstanceType='t2.nano',
         SecurityGroupIds=[
-            create_security_group(ec2_client, ec2_resource),
+            create_security_group(ec2_client),
         ],
-        SubnetId=default_subnet_id,
+        # SubnetId=default_subnet_id,
         UserData=user_data,
         KeyName=key_name,
         TagSpecifications=[
@@ -215,7 +241,8 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     # Returns list of instance objects
     created_instance_id = instance[0].instance_id
     waiter = ec2_client.get_waiter('instance_running')
-    waiter.wait(
+    try:
+        waiter.wait(
         InstanceIds=[
             created_instance_id,
         ],
@@ -224,6 +251,11 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
         #     'MaxAttempts': 20 # default 40
         # },
     )
+    except WaiterError as err:
+        """
+        botocore.exceptions.WaiterError: Waiter InstanceRunning failed: Waiter encountered a terminal failure state: For expression "Reservations[].Instances[].State.Name" we matched expected path: "shutting-down" at least once
+"""
+        return created_instance_id
 
     return created_instance_id
 
