@@ -1,3 +1,5 @@
+import os
+
 from botocore.exceptions import ClientError, WaiterError
 
 
@@ -358,3 +360,32 @@ def get_instance_availability_zone(ec2_resource, instance_id):
     instance = ec2_resource.Instance(instance_id)
     availability_zone = instance.placement['AvailabilityZone']
     return availability_zone
+
+def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_object_details):
+
+    # reference for EC2 Obj bucket URL https://stackoverflow.com/questions/48608570/python-3-boto-3-aws-s3-get-object-url
+    ec2_html_script = f"""
+    <html>
+    <head>
+    <title>JOMahony A01</title>
+    </head>
+    <body>
+    <h1>Joe O'Mahony ACS A01</h1>
+    <hr />
+    <h2>EC2 Server Details</h2>
+    <ul>
+    <li><b>Instance ID:</b> {ec2_instance_id}</li>
+    <li><b>Server availability zone:</b> {ec2_instance_availability_zone}</li>
+    </ul>
+    <img src="https://{s3_object_details['BucketName']}.s3.amazonaws.com/{s3_object_details['ObjKey']}">
+    </body>
+    </html>
+    """
+
+    # https://docs.python.org/3/library/functions.html#open
+    with open("index.html", "w") as file:  # just with open and args
+        file.write(ec2_html_script)
+
+def delete_index_document():
+    # https://docs.python.org/3/library/os.html#os.remove
+    os.remove("index.html")

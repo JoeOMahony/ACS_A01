@@ -1,3 +1,4 @@
+import os
 import time
 
 def create_key_pair(ec2_client):
@@ -28,9 +29,19 @@ def create_key_pair(ec2_client):
             }
         ]
     )
+
+    # DOCS: KeyMaterial (string) –
+    # An unencrypted PEM encoded RSA or ED25519 private key.
+    with open('JOMahony_A01_RSA.pem', 'w') as file:
+        file.write(response['KeyMaterial'])
+
+    # https://docs.python.org/3/library/os.html
+    # octal is used for chmod permissions
+    # Key permissions need to be owner read only for EC2 connection or refused
+    os.chmod('JOMahony_A01_RSA.pem', 0o400) #
     return response
 
-def delete_key_pair(ec2_client, key_name):
+def delete_remote_key_pair(ec2_client, key_name):
     """
     Deletes the argument key-pair
 
@@ -44,7 +55,11 @@ def delete_key_pair(ec2_client, key_name):
     response = ec2_client.delete_key_pair(
         KeyName=key_name,
     )
+
     return response # dict Return Boolean KeyPairId String
+
+def delete_local_key_pair():
+    os.remove('JOMahony_A01_RSA.pem')
 
 def get_all_key_pairs_str(ec2_client):
     key_pairs = ec2_client.describe_key_pairs() # TYPEERROR => { 'KeyPairs': [ {'KeyName': ...}, {'KeyName': ...} ] }
