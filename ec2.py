@@ -127,12 +127,12 @@ def create_security_group(ec2_client):
         #     return security_groups[0].id
 
         existing_security_groups = ec2_client.describe_security_groups(GroupNames=[
-        'EC2_public_access',
-    ],)
+            'EC2_public_access',
+        ],)
         # Response dict | first entry in list of security groups | Group Name
         if existing_security_groups['SecurityGroups'][0]['GroupName'] == 'EC2_public_access':
             return existing_security_groups['SecurityGroups'][0]['GroupId'] # not GroupName (Error:)
-
+    except ClientError: # EC2 throws an error here instead of an empty list if it doesn't exsits
         response = ec2_client.create_security_group(GroupName='EC2_public_access',
                                                     Description='Joe OMahony ACS Assignment01)', # No apostrophe for O'Mahony
                                                     VpcId=vpc_id)
@@ -156,10 +156,6 @@ def create_security_group(ec2_client):
                  'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
             ],
         )
-
-    except ClientError as err:
-        return err
-
     return security_group_id
 
 def delete_security_group(ec2_client, group_name):
@@ -243,14 +239,14 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     waiter = ec2_client.get_waiter('instance_running')
     try:
         waiter.wait(
-        InstanceIds=[
-            created_instance_id,
-        ],
-        # WaiterConfig={ # 'A dictionary that provides parameters to control waiting behavior.'
-        #     'Delay': 30, # seconds, 15 default
-        #     'MaxAttempts': 20 # default 40
-        # },
-    )
+            InstanceIds=[
+                created_instance_id,
+            ],
+            # WaiterConfig={ # 'A dictionary that provides parameters to control waiting behavior.'
+            #     'Delay': 30, # seconds, 15 default
+            #     'MaxAttempts': 20 # default 40
+            # },
+        )
     except WaiterError as err:
         """
         botocore.exceptions.WaiterError: Waiter InstanceRunning failed: Waiter encountered a terminal failure state: For expression "Reservations[].Instances[].State.Name" we matched expected path: "shutting-down" at least once
@@ -356,3 +352,9 @@ def get_unterminated_instances(ec2_resource):
             instances.append(instance.instance_id)
 
     return instances
+
+def get_instance_availability_zone(ec2_resource, instance_id):
+    # https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/instance/placement.html
+    instance = ec2_resource.Instance(instance_id)
+    availability_zone = instance.placement['AvailabilityZone']
+    return availability_zone

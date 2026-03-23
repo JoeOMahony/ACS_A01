@@ -114,7 +114,13 @@ def put_object(s3_client, bucket_name, ec2_instance_id, object):
         ContentType='image/png', # MIME type required here for local file upload
     )
 
-    return response
+    # Adding as I need the key
+    obj_details = {
+        'BucketName': bucket_name,
+        'ObjKey': object_name,
+    }
+
+    return obj_details
 
 
 def list_all_buckets(s3_client):
