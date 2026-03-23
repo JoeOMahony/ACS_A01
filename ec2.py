@@ -131,7 +131,7 @@ def create_security_group(ec2_client):
     ],)
         # Response dict | first entry in list of security groups | Group Name
         if existing_security_groups['SecurityGroups'][0]['GroupName'] == 'EC2_public_access':
-            return 'EC2_public_access'
+            return existing_security_groups['SecurityGroups'][0]['GroupId'] # not GroupName (Error:)
 
         response = ec2_client.create_security_group(GroupName='EC2_public_access',
                                                     Description='Joe OMahony ACS Assignment01)', # No apostrophe for O'Mahony
@@ -259,10 +259,14 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
 
     return created_instance_id
 
-def terminate_instances(ec2_resource, instance_ids):
+def terminate_instances(ec2_resource, ec2_client, instance_ids):
     """
     Function that takes a list of EC2 instance IDs and terminates them.
 
+    instance terminated waiter
+     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/waiter/InstanceTerminated.html
+
+    :param ec2_client:
     :param ec2_resource: EC2 Resource handle
     :param instance_ids: List of EC2 instance IDs
     :return: responses List of instance terminated responses
@@ -273,6 +277,16 @@ def terminate_instances(ec2_resource, instance_ids):
         instance = ec2_resource.Instance(instance_id)
         termination_response = instance.terminate()
         responses.append(termination_response)
+
+    # Adding a waiter to avoid:
+    # An error occurred (DependencyViolation) when calling the DeleteSecurityGroup operation
+    # waiter.wait(
+    #     InstanceIds=[
+    #         'string',
+    waiter = ec2_client.get_waiter('instance_terminated')
+    waiter.wait(
+        InstanceIds=instance_ids,
+    )
 
     return responses
 

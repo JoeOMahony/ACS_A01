@@ -42,8 +42,33 @@ print('==========================')
 print(ec2.get_all_instances_str(ec2_resource))
 print('==========================')
 
-print('All unterminated EC2 instance IDs: ', str(ec2.get_unterminated_instances(ec2_resource)))
+print(s3.list_all_buckets(s3_client))
 print('==========================')
+
+input('delete all?')
+
+print('Deleting the bucket and objects created for this assignment...')
+print(s3.delete_bucket(s3_client, s3_bucket['BucketName']))
+print('==========================')
+
+print(s3.list_all_buckets(s3_client))
+print('==========================')
+
+print('Deleting the EC2 instance created for this assignment...')
+print('Waiting for instance state to change to terminated...')
+print(ec2.terminate_instances(ec2_resource, ec2_client, [ec2_instance_id]))
+print('==========================')
+
+print('Deleting the SG created for this assignment...')
+print(ec2.delete_security_group(ec2_client, 'EC2_public_access'))
+print('==========================')
+
+print('Deleting the key pair created for this assignment...')
+print(delete_key_pair(ec2_client, key_name))
+print('==========================')
+
+# print('All unterminated EC2 instance IDs: ', str(ec2.get_unterminated_instances(ec2_resource)))
+# print('==========================')
 #
 # print('Deleting all unterminated EC2 Instances...')
 # print(str(ec2.terminate_instances(ec2_resource, ec2.get_unterminated_instances(ec2_resource))))

@@ -51,10 +51,10 @@ def create_bucket(s3_client, ec2_instance_id):
         CreateBucketConfiguration={
             # 'LocationConstraint': 'us-east-1', (InvalidLocationConstraint)
             'Tags': [
-                        {'Key': 'CreatedBy', 'Value': 'JoeOMahony'},
-                        {'Key': 'Module', 'Value': 'AutomatedCloudServices'},
-                        {'Key': 'Assignment', 'Value': 'Assignment01'}
-                    ],
+                {'Key': 'CreatedBy', 'Value': 'JoeOMahony'},
+                {'Key': 'Module', 'Value': 'AutomatedCloudServices'},
+                {'Key': 'Assignment', 'Value': 'Assignment01'}
+            ],
         },
         ObjectLockEnabledForBucket=False, # Check later
         ObjectOwnership = 'BucketOwnerPreferred',
@@ -71,7 +71,7 @@ def create_bucket(s3_client, ec2_instance_id):
         Bucket=bucket_name,
     )
 
-# https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
+    # https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
     s3_client.put_bucket_acl(
         ACL='public-read',
         Bucket=bucket_name,
@@ -115,3 +115,78 @@ def put_object(s3_client, bucket_name, ec2_instance_id, object):
     )
 
     return response
+
+
+def list_all_buckets(s3_client):
+    """
+https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/list_buckets.html
+
+    Response Syntax
+
+{
+    'Buckets': [
+        {
+            'Name': 'string',
+            'CreationDate': datetime(2015, 1, 1),
+            'BucketRegion': 'string',
+            'BucketArn': 'string'
+        },
+    ],
+    'Owner': {
+        'DisplayName': 'string',
+        'ID': 'string'
+    },
+    'ContinuationToken': 'string',
+    'Prefix': 'string'
+}
+
+    :param s3_client:
+    :return:
+    """
+    response = s3_client.list_buckets()
+    return response['Buckets']
+
+def delete_objects(s3_client, bucket_name):
+    """
+    https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/delete_object.html
+
+    :param s3_client:
+    :param bucket_name:
+    :param object_name:
+    :return:
+    """
+    bucket_objects = s3_client.list_objects(
+        Bucket=bucket_name,
+    )
+
+    # 'Contents': [
+    #         {
+    #             'ETag': '"70ee1738b6b21e2c8a43f3a5ab0eee71"',
+    #             'Key': 'example1.jpg', ...
+    for bucket_object in bucket_objects['Contents']:
+        s3_client.delete_object(
+            Bucket=bucket_name,
+            Key=bucket_object['Key'],
+        )
+    return True # come back to verify later
+
+
+def delete_bucket(s3_client, bucket_name):
+    delete_all_objects = delete_objects(s3_client, bucket_name)
+
+    if delete_all_objects:
+        s3_client.delete_bucket( # returns None
+            Bucket = bucket_name,
+        )
+
+        all_buckets = list_all_buckets(s3_client)
+        #   'Buckets': [
+        #         {
+        #             'Name': 'string', ...
+        for bucket in all_buckets: # list
+            if bucket['Name'] == bucket_name:
+                return False
+
+        return True
+
+    return False
