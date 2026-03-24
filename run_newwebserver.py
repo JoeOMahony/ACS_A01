@@ -1,6 +1,7 @@
 import time
 import subprocess
 import boto3
+
 import ec2
 import s3
 import key_pair as kp
@@ -37,10 +38,18 @@ s3_bucket = s3.create_bucket(s3_client, ec2_instance_id)
 print('S3 Bucket created : ', str(s3_bucket)) # TypeError
 print('==========================')
 
-setu_image = open('images/setu.png','rb') # docs specify must be opened in binary mode, then specify MIME type
-# https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
+obj_url_input = input("Please enter an image URL to be displayed on the website or NONE for the default image: ").strip()
 
-s3_object_details = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, setu_image)
+if obj_url_input == 'NONE':
+    obj_url_input = 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Waterford_Institute_of_Technology%2C_2021-06-01%2C_06.jpg'
+
+
+    # obj_url_input = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+# setu_image = open('images/setu.png','rb') # docs specify must be opened in binary mode, then specify MIME type
+# # https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
+
+s3_object_details = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, obj_url_input)
+
 print('S3 object created and put in bucket: ' + str(s3_object_details))
 print('==========================')
 

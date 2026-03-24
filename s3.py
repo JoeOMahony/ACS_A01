@@ -1,5 +1,7 @@
 import time
 
+import requests
+
 
 def create_bucket(s3_client, ec2_instance_id):
     """
@@ -81,7 +83,7 @@ def create_bucket(s3_client, ec2_instance_id):
 
     return bucket
 
-def put_object(s3_client, bucket_name, ec2_instance_id, object):
+def put_object(s3_client, bucket_name, ec2_instance_id, object_url):
     """
     Function which puts an image object into the S3 bucket.
 
@@ -104,9 +106,28 @@ def put_object(s3_client, bucket_name, ec2_instance_id, object):
     """
     # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
     object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
+
+    # https://docs.python.org/3/library/urllib.request.html#module-urllib.request
+    # urllib.request.urlopen(url, data=None, [timeout, ]*, context=None)
+    try:
+        # https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
+        image = requests.get(object_url, headers=headers).content
+    # except URLError:
+    #     # Raises URLError on protocol errors.
+    #     image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+    except Exception:
+        # REFACTOR THIS LATER TO JUST USE TRY-CATCH FOR THE VARIABLE, NOT URLOPEN CALL
+        # object_url = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+        # urllib.error.HTTPError: HTTP Error 403: Forbidden
+        object_url = 'https://setuarena.ie/wp-content/uploads/2023/05/Tile-Image-11-e1713175411262.jpg'
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
+        image = requests.get(object_url, headers=headers).content
+
+
     response = s3_client.put_object(
         ACL='public-read',
-        Body=object,
+        Body=image,
         Bucket=bucket_name,
         Key=object_name,
         # REFERENCE: Full StackOverflow reference for the below Tagging key-pair in function documentation
