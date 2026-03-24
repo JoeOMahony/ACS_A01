@@ -59,7 +59,7 @@ def delete_remote_key_pair(ec2_client, key_name):
     return response # dict Return Boolean KeyPairId String
 
 def delete_local_key_pair():
-    os.remove('JOMahony_A01_RSA.pem')
+    return os.remove('JOMahony_A01_RSA.pem')
 
 def get_all_key_pairs_str(ec2_client):
     key_pairs = ec2_client.describe_key_pairs() # TYPEERROR => { 'KeyPairs': [ {'KeyName': ...}, {'KeyName': ...} ] }

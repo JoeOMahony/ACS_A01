@@ -1,14 +1,15 @@
 import time
-
 import requests
-
+from requests import HTTPError
+from urllib.error import URLError
+import mimetypes
 
 def create_bucket(s3_client, ec2_instance_id):
     """
     Function which creates a publicly-accessible general purpose S3 bucket and returns a dictionary representation of
     the bucket attributes.
 
-    - Names the bucket using the argument EC2 instance ID as follows, joe-omahony-[ec2_instance_id]
+    - Names the sbucket using the argument EC2 instance ID as follows, joe-omahony-[ec2_instance_id]
     - Creates the bucket with object lock disabled.
     - Once the bucket exists, the public access block is removed.
     - A dictionary representing the bucket attributes is returned.
@@ -83,7 +84,53 @@ def create_bucket(s3_client, ec2_instance_id):
 
     return bucket
 
-def put_object(s3_client, bucket_name, ec2_instance_id, object_url):
+def get_image_object(obj_url_input):
+    # https://docs.python.org/3/library/urllib.request.html#module-urllib.request
+    # urllib.request.urlopen(url, data=None, [timeout, ]*, context=None)
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
+    fallback_obj_url_input = 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Waterford_Institute_of_Technology%2C_2021-06-01%2C_06.jpg'
+    timeout = 30 # "By default, requests do not time out unless a timeout value is set explicitly." [seconds]
+    try:
+        if obj_url_input == 'NONE': # keyword for no URL to provide, use known good
+            obj_url_input = 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Waterford_Institute_of_Technology%2C_2021-06-01%2C_06.jpg'
+
+        # https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
+        image = requests.get(obj_url_input, timeout=timeout, headers=headers).content
+
+    except URLError: # Raises URLError on protocol errors.
+        image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
+    # image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+
+    except HTTPError: # Thrown if no user agent or site denited - urllib.error.HTTPError: HTTP Error 403: Forbidden
+        # REFACTOR THIS LATER TO JUST USE TRY-CATCH FOR THE VARIABLE, NOT URLOPEN CALL
+        # object_url = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+        # urllib.error.HTTPError: HTTP Error 403: Forbidden
+        image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
+
+    except Exception:
+        image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
+
+    return image
+
+# https://docs.python.org/3/library/mimetypes.html#mimetypes.guess_type
+def guess_mime_type(obj_url_input):
+    # (type, encoding) = mimetypes.guess_type(obj_url_input)
+    # return (type, encoding)
+    # Invalid type for parameter ContentEncoding, value: None, type: <class 'NoneType'>, valid types: <class 'str'>
+    (mime_type, encoding) = mimetypes.guess_type(obj_url_input)
+
+    if mime_type is None:
+        mime_type = 'image/png' # type is None if the type can't be guessed (no or unknown suffix)
+
+    try:
+        if not str(mime_type).startswith('image/'):
+            mime_type = 'image/png'
+    except Exception:
+        mime_type = 'image/png'
+
+    return mime_type
+
+def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
     """
     Function which puts an image object into the S3 bucket.
 
@@ -99,40 +146,25 @@ def put_object(s3_client, bucket_name, ec2_instance_id, object_url):
     Boto3 documentating for upload files (showed me MIME types needed + binary read with open)
     https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
 
+    :param mime_type:
+    :param encoding:
     :param s3_client:
     :param bucket_name:
-    :param object:
+    :param image: image
+    :param ec2_instance_id:
     :return:
     """
     # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
     object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
 
-    # https://docs.python.org/3/library/urllib.request.html#module-urllib.request
-    # urllib.request.urlopen(url, data=None, [timeout, ]*, context=None)
-    try:
-        # https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
-        image = requests.get(object_url, headers=headers).content
-    # except URLError:
-    #     # Raises URLError on protocol errors.
-    #     image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
-    except Exception:
-        # REFACTOR THIS LATER TO JUST USE TRY-CATCH FOR THE VARIABLE, NOT URLOPEN CALL
-        # object_url = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
-        # urllib.error.HTTPError: HTTP Error 403: Forbidden
-        object_url = 'https://setuarena.ie/wp-content/uploads/2023/05/Tile-Image-11-e1713175411262.jpg'
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
-        image = requests.get(object_url, headers=headers).content
-
-
-    response = s3_client.put_object(
+    s3_client.put_object(
         ACL='public-read',
         Body=image,
         Bucket=bucket_name,
         Key=object_name,
         # REFERENCE: Full StackOverflow reference for the below Tagging key-pair in function documentation
         Tagging='CreatedBy=JoeOMahony&Module=AutomatedCloudServices&Assignment=AutomatedCloudServices',
-        ContentType='image/png', # MIME type required here for local file upload
+        ContentType=mime_type, # MIME type required here for local file upload
     )
 
     # Adding as I need the key
@@ -179,7 +211,6 @@ def delete_objects(s3_client, bucket_name):
 
     :param s3_client:
     :param bucket_name:
-    :param object_name:
     :return:
     """
     bucket_objects = s3_client.list_objects(
