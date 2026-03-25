@@ -3,6 +3,15 @@ import subprocess
 from botocore.exceptions import ClientError, WaiterError
 
 def get_user_data_script():
+    """
+    Returns a bash script to be used as user data when creating EC2 instances.
+
+    - Uses the DNF package manager.
+    - Updates, upgrades, then installs the httpd server.
+    - Enables and starts the httpd service.
+
+    :return: Bash script for updating, upgrading, and installing Apache server on Linux distros.
+    """
     return """#!/bin/bash
     dnf update
     dnf upgrade -y
@@ -13,18 +22,16 @@ def get_user_data_script():
 
 def get_default_vpc_id(ec2_client):
     """
-    Function to return the ID of the default VPC.
+    Returns the ID of the default VPC.
 
-    - Takes the EC2 client handle as a parameter.
     - Uses the describe_vpcs() method with a filter to get a dictionary of default VPCs.
-    - Takes the first entry in the list of default VPCs and gets its corresponding VPC ID.
-    - Returns the ID of the default VPC.
+    - Takes the first entry in the list of default VPCs, gets, and returns its corresponding VPC ID.
 
-    Boto3 documentation link:
+    Boto3 documentation for ec2_client.describe_vpcs() link:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/describe_vpcs.html
 
     :param ec2_client: EC2 client handle
-    :return: default_vpc_id The default VPC ID
+    :return: The ID of the default VPC
     """
     default_vpc = ec2_client.describe_vpcs(
         Filters=[
@@ -38,104 +45,35 @@ def get_default_vpc_id(ec2_client):
     )
     # Default VPCs [dict] | VPC entry 0 [list] | VpcId (string) [dict]
     default_vpc_id = default_vpc['Vpcs'][0]['VpcId']
+
     return default_vpc_id
-
-def get_subnet_id_default_vpc(ec2_client):
-    """
-    Function to return the subnet ID of the default VPC.
-
-    - Takes the EC2 client handle as an argument.
-    - Calls get_default_vpc_id() to get the default VPC ID for subnet filtering.
-    - Calls describe_subnets() with the default VPC ID as a filter to get a dictionary of subnets within that VPC.
-    - Accesses the dictionary of subnets associated with default VPC and returns the subnet ID of the first subnet.
-
-    Boto3 documentation link:
-    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/describe_subnets.html
-
-    :param ec2_client: EC2 client handle
-    :return: subnet_id The subnet ID associated with the default VPC
-    """
-    default_vpc_id =  get_default_vpc_id(ec2_client)
-    subnets = ec2_client.describe_subnets(
-        Filters=[
-            {
-                'Name': 'vpc-id',
-                'Values': [
-                    default_vpc_id,
-                ]
-            },
-        ],
-    )
-    # Default subnets [dict] | subnet 0 [list] | SubnetId: [dict]
-    subnet_id = subnets['Subnets'][0]['SubnetId']
-    return subnet_id
-
-def get_security_group_id_default_vpc(ec2_client):
-    """
-    **DEPRECATED!** => USE create_security_group()
-
-    Function to return the ID of the default security group associated with the default VPC.
-
-    - Takes the EC2 client handle as an argument.
-    - Calls get_default_vpc_id() to get the default VPC ID for security group filtering.
-    - Filters describe_security_groups() with the default VPC ID and default flag.
-    - Returns the ID of the first default security group.
-
-    Boto3 documentation link:
-    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/describe_security_groups.html
-
-    :param ec2_client: EC2 client handle
-    :return: security_group_id The default security group ID of the default VPC
-    """
-    default_vpc_id = get_default_vpc_id(ec2_client)
-    security_groups = ec2_client.describe_security_groups(
-        Filters=[
-            {
-                'Name': 'vpc-id',
-                'Values': [default_vpc_id],
-            },
-            {
-                'Name': 'group-name',
-                'Values': ['default']
-            }
-        ]
-    )
-    # Security groups [dict] | security group 0 [list] | security group ID [dict]
-    security_group_id = security_groups['SecurityGroups'][0]['GroupId']
-    return security_group_id
 
 def create_security_group(ec2_client):
     """
+    Creates a new security group allowing public HTTP/HTTPS/SSH access called EC2_public_access.
 
-    Boto3 documentation for 'Working with SGs in Amazon EC2'
+    - Checks if the EC2_public_access security group already exists.
+    - If it does already exist, returns its ID.
+    - If it doesn't, a 'ClientError' is thrown and a new security group is created.
+
+    Reference -> Boto3 documentation for 'Working with SGs in Amazon EC2':
     https://docs.aws.amazon.com/boto3/latest/guide/ec2-example-security-group.html
 
-    Boto3 documentation for EC2.Client.describe_security_groups(**kwargs)
+    Boto3 documentation for EC2.Client.describe_security_groups(**kwargs):
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/describe_security_groups.html
 
-    Boto3 documentation for EC2.Client.authorize_security_group_ingress(**kwargs)
+    Boto3 documentation for EC2.Client.authorize_security_group_ingress(**kwargs):
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/authorize_security_group_ingress.html
 
-    Boto3 documentation for EC2 Resource handle security_groups
+    Boto3 documentation for EC2 Resource handle security_groups:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/service-resource/security_groups.html
 
-    :param ec2_client:
-    :return:
+    :param ec2_client: EC2 client handle
+    :return: ID of the created security group
     """
     vpc_id = get_default_vpc_id(ec2_client)
-
     try:
-        # # Need to make sure it doesn't already exist for testing or error
-        # security_groups = list(ec2_resource.security_groups.filter(
-        #     Filters=[
-        #         {'Name': 'group-name',
-        #          'Values': ['EC2_public_access']},
-        #     ]
-        # ))
-        #
-        # if security_groups:
-        #     return security_groups[0].id
-
+        # Need to make sure it doesn't already exist for testing or error
         existing_security_groups = ec2_client.describe_security_groups(GroupNames=[
             'EC2_public_access',
         ],)
@@ -146,7 +84,6 @@ def create_security_group(ec2_client):
         response = ec2_client.create_security_group(GroupName='EC2_public_access',
                                                     Description='Joe OMahony ACS Assignment01)', # No apostrophe for O'Mahony
                                                     VpcId=vpc_id)
-
         security_group_id = response['GroupId']
 
         ec2_client.authorize_security_group_ingress(
@@ -166,21 +103,26 @@ def create_security_group(ec2_client):
                  'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
             ],
         )
+
     return security_group_id
 
 def delete_security_group(ec2_client, group_name):
     """
+    Deletes the security group passed as argument.
 
-    Can't have dependent objects for deletion
-https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_security_group.html
-    :param group_name:
-    :param ec2_client:
-    :return:
+    AWS requires all dependent resources to be removed before a security group can be deleted.
+    From this, EC2 instances must be in the 'Terminated' state. See the documentation linked below.
+
+    Boto3 documentation for ec2_client.delete_security_group():
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_security_group.html
+
+    :param group_name: Name of the security group to be deleted
+    :param ec2_client: EC2 client handle
+    :return: None if successful, ClientError if unsuccessful due to existing dependencies on that security group
     """
     try:
         response = ec2_client.delete_security_group(GroupName=group_name)
         return response # Response Syntax {'Return': True|False,'GroupId': 'string'}
-
     except ClientError as err:
         return err
     except Exception as err:
@@ -189,29 +131,28 @@ https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_se
 
 def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     """
-    Function that creates an EC2 instance and returns the instance ID when that instance is running.
+    Creates an EC2 instance and returns the instance ID when in the 'running' state.
 
-    - Takes both the EC2 client and resource handles as arguments.
-    - Gets the default subnet ID from the default VPC.
-    - Gets the default security group ID from the default VPC.
-    - Calls ec2_resource.create_instances() with the function arguments and subnet/security group ID
-      to create an instance.
+    Function:
+
+    - Depends on the region set in the argument client and resource handles.
+    - Creates a new security group with public access for HTTP/HTTPS/SSH.
+    - Creates a new T2.Nano instance using the latest Amazon Linux LTS release with the argument pem key and user data.
     - Instantiates an 'instance_running' waiter and waits until the EC2 instance's status
       is changed to 'running' (minimum wait of 30 seconds).
     - Returns the ID of the created, running instance.
 
-    Boto3 documentation for ec2_resource.create_instances()
+    Boto3 documentation for ec2_resource.create_instances():
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/service-resource/create_instances.html
 
-    Boto3 documentation for the ec2_client.get_waiter() method
+    Boto3 documentation for the ec2_client.get_waiter() method:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/get_waiter.html
 
-    Boto3 documentation for all EC2 waiter_names
+    Boto3 documentation for all EC2 waiter_names:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2.html#waiters
 
-    Boto3 documentation for the 'Instance Running' waiter_name for ec2_client.get_waiter()
+    Boto3 documentation for the 'Instance Running' waiter_name for ec2_client.get_waiter():
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/waiter/InstanceRunning.html
-
 
     :param ec2_resource: EC2 Resource handle
     :param ec2_client: EC2 Client handle
@@ -219,8 +160,6 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     :param user_data: Bash script to pass to the EC2
     :return: created_instance_id EC2 instance ID
     """
-    # default_subnet_id = get_subnet_id_default_vpc(ec2_client)
-    # default_security_group_id = get_security_group_id_default_vpc(ec2_client)
     instance = ec2_resource.create_instances(
         ImageId='ami-0f3caa1cf4417e51b', # latest Amazon Linux LTS AMI
         MinCount=1,
@@ -258,23 +197,21 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
             # },
         )
     except WaiterError:
-        """
-        botocore.exceptions.WaiterError: Waiter InstanceRunning failed: Waiter encountered a terminal failure state: For expression "Reservations[].Instances[].State.Name" we matched expected path: "shutting-down" at least once
-"""
+        # botocore.exceptions.WaiterError: ...we matched expected path: "shutting-down" at least once
         return created_instance_id
 
     return created_instance_id
 
 def terminate_instances(ec2_resource, ec2_client, instance_ids):
     """
-    Function that takes a list of EC2 instance IDs and terminates them.
+    Takes a list of EC2 instance IDs and terminates them.
 
-    instance terminated waiter
-     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/waiter/InstanceTerminated.html
+    Boto3 documentation for instance terminated waiter:
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/waiter/InstanceTerminated.html
 
-    :param ec2_client:
+    :param ec2_client: EC2 client handle
     :param ec2_resource: EC2 Resource handle
-    :param instance_ids: List of EC2 instance IDs
+    :param instance_ids: List of EC2 instance IDs to be terminated
     :return: responses List of instance terminated responses
     """
     responses = []
@@ -286,9 +223,7 @@ def terminate_instances(ec2_resource, ec2_client, instance_ids):
 
     # Adding a waiter to avoid:
     # An error occurred (DependencyViolation) when calling the DeleteSecurityGroup operation
-    # waiter.wait(
-    #     InstanceIds=[
-    #         'string',
+    # waiter.wait(InstanceIds=['string',
     waiter = ec2_client.get_waiter('instance_terminated')
     waiter.wait(
         InstanceIds=instance_ids,
@@ -296,84 +231,39 @@ def terminate_instances(ec2_resource, ec2_client, instance_ids):
 
     return responses
 
-def get_all_instances_str(ec2_resource):
-    """
-    Function that returns a list of all EC2 instance details
-
-    Boto3 documentation for Resource handle EC2 instances
-    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/service-resource/instances.html
-
-    Boto3 documentation for EC2 instance states
-    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/instance/state.html
-
-    :param ec2_resource: EC2 Resource handle
-    :return: List of Dictionary EC2 instance details
-    """
-    pending_instances = []
-    running_instances = []
-    shutting_down_instances = []
-    terminated_instances = []
-    stopping_instances = []
-    stopped_instances = []
-
-    for instance in ec2_resource.instances.all():  # returns a list(ec2.instance)
-        if instance.state['Name'] == 'pending':
-            pending_instances.append(instance.instance_id)
-        elif instance.state['Name'] == 'running':
-            running_instances.append(instance.instance_id)
-        elif instance.state['Name'] == 'shutting-down':
-            shutting_down_instances.append(instance.instance_id)
-        elif instance.state['Name'] == 'terminated':
-            terminated_instances.append(instance.instance_id)
-        elif instance.state['Name'] == 'stopping':
-            stopping_instances.append(instance.instance_id)
-        else:
-            stopped_instances.append(instance.instance_id) # stopped
-
-    instance_string = "All EC2 Instances:\n"
-
-    if len(pending_instances) > 0:
-        instance_string += f"\t{len(pending_instances)} pending EC2 instance(s) =>  " + str(pending_instances) + "\n"
-    if len(running_instances) > 0:
-        instance_string += f"\t{len(running_instances)} running EC2 instance(s) => " + str(running_instances) + "\n"
-    if len(shutting_down_instances) > 0:
-        instance_string += f"\t{len(shutting_down_instances)} shutting down EC2 instance(s) => " + str(shutting_down_instances) + "\n"
-    if len(terminated_instances) > 0:
-        instance_string += f"\t{len(terminated_instances)} terminated EC2 instance(s) => " + str(terminated_instances) + "\n"
-    if len(stopping_instances) > 0:
-        instance_string += f"\t{len(stopping_instances)} stopping EC2 instance(s) => " + str(stopping_instances) + "\n"
-    if len(stopped_instances) > 0:
-        instance_string += f"\t{len(stopped_instances)} stopped EC2 instance(s) => " + str(stopped_instances)
-
-    return instance_string
-
-
-def get_unterminated_instances(ec2_resource):
-    """
-    Function that returns a list of all unterminated EC2 instance IDs
-
-    :param ec2_resource: EC2 Resource handle
-    :return: instances List of unterminated EC2 instance IDs
-    """
-    instances = []
-
-    for instance in ec2_resource.instances.all():
-        if instance.state['Name'] != 'terminated':
-            instances.append(instance.instance_id)
-
-    return instances
-
 def get_instance_availability_zone(ec2_resource, instance_id):
-    # https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/instance/placement.html
+    """
+    Returns the availability zone for the argument EC2 instance.
+
+    Boto3 documentation for placement attributes of EC2 instance resources:
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/instance/placement.html
+
+    :param ec2_resource: EC2 resource handle
+    :param instance_id: EC2 instance ID to find the availability zone for
+    :return:Availability zone of the argument EC2 instance
+    """
     instance = ec2_resource.Instance(instance_id)
     availability_zone = instance.placement['AvailabilityZone']
     return availability_zone
 
 def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_object_details):
+    """
+    Creates a local index.html document showing my name, the EC2 instance ID, and availability zone, with the
+    argument S3 object displayed as an image.
+
+    Reference for the URL syntax for S3 objects in buckets:
+    https://stackoverflow.com/questions/48608570/python-3-boto-3-aws-s3-get-object-url
+
+    Python documentation for the built-in open function:
+    https://docs.python.org/3/library/functions.html#open
+
+    :param ec2_instance_id: EC2 instance ID to be displayed in the document
+    :param ec2_instance_availability_zone: EC2 instance availability zone to be displayed in the document
+    :param s3_object_details: Data returned from creation of an S3 object
+    """
     if os.path.exists("index.html"): # since hard-coded, need to existence check
         os.remove("index.html")
 
-    # reference for EC2 Obj bucket URL https://stackoverflow.com/questions/48608570/python-3-boto-3-aws-s3-get-object-url
     ec2_html_script = f"""
     <html>
     <head>
@@ -392,15 +282,35 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
     </html>
     """
 
-    # https://docs.python.org/3/library/functions.html#open
+    if os.path.exists("index.html"):
+        os.remove("index.html")
     with open("index.html", "w") as file:  # just with open and args
         file.write(ec2_html_script)
 
 def delete_index_document():
-    # https://docs.python.org/3/library/os.html#os.remove
-    os.remove("index.html")
+    """
+    Deletes the local index.html file.
+
+    Python documentation for the os module's remove() function:
+    https://docs.python.org/3/library/os.html#os.remove
+    """
+    if os.path.exists("index.html"): # existence check
+        os.remove("index.html")
 
 def check_httpd_active(instance):
+    """
+    Uses the subprocess module to connect to the argument EC2 instance resource and check if the httpd
+    service (Apache web server) is active.
+
+    Python documentation for the find() function:
+    https://docs.python.org/3/library/stdtypes.html#str.find
+
+    Python documentation for the subprocess module:
+    https://docs.python.org/3/library/subprocess.html
+
+    :param instance: EC2 instance resource to be checked
+    :return: True if the httpd service is active, False if not.
+    """
     result = subprocess.run([
         "ssh",
         "-o",
@@ -411,7 +321,6 @@ def check_httpd_active(instance):
         "service httpd status"
     ], text=True, capture_output=True)
 
-    # https://docs.python.org/3/library/functions.html
     # "Active: active (running)" shows when actually running alongside PID, etc.
     if result.stdout.find("Active: active (running)") > 0: # -1 == not found
         return True
@@ -419,7 +328,23 @@ def check_httpd_active(instance):
     return False
 
 def transfer_index_to_ec2(instance):
-    # https://docs.python.org/3/library/subprocess.html
+    """
+    Transfers the local index.html file to the argument EC2 instance's /var/www/html directory.
+
+    Function:
+    - Uses SCP over TCP/22 with the local pem key to transfer the local index.html file to the ec2-user directory.
+    - Uses SSH to connect and move index.html from the ec2-user directory to /var/www/html/
+    - StrictHostKeyChecking is disabled as a workaround to Amazon requiring an initial 'yes' to add the host key.
+    - If the connection or transfer fails, a CalledProcessError is thrown.
+
+    Python documentation for the subprocess module:
+    https://docs.python.org/3/library/subprocess.html
+
+    Python documentation for the subprocess.run() check option:
+    https://docs.python.org/3.14/library/subprocess.html#subprocess.check
+
+    :param instance: EC2 instance resource to receive index.html
+    """
     # StrictHostKeyChecking=no is a workaround, without it the connection is refused.
     # In the CLI, you need to confirm whether or not to add the host key on first connection, but I couldn't just run
     # another subprocess with a 'yes' argument and continue on.

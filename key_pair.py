@@ -3,12 +3,18 @@ import time
 
 def create_key_pair(ec2_client):
     """
-    Creates a unique RSA key-pair using the EC2 client handle
+    Creates an RSA key-pair using the EC2 client handle remotely and locally.
 
-    - Uniqueness provided through nanoseconds since Epoch (1/Jan/70)
-    -- Nanoseconds selected to ensure uniqueness, but also because time.time_ns() returns an int
-    - Docs: https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/create_key_pair.html
-    - Key name: acs_a01_jomahony
+    - Remote key name uniqueness provided through nanoseconds since Epoch, i.e., acs_a01_jomahony_{time_since_epoch}.pem}
+    - Nanoseconds selected to ensure uniqueness, but also because time.time_ns() returns an int
+    - Local key name is hard-coded as JOMahony_A01_RSA.pem, but existence checks before creation mitigates.
+    - Local key is given 400 permissions as required when using SSH to reach EC2 instance.
+
+    Boto3 documentation for ec2_client.create_key_pair():
+    https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/create_key_pair.html
+
+    Boto3 documentation for the OS library, including chmod call:
+    https://docs.python.org/3/library/os.html
 
     :param ec2_client: EC2 client handle
     :return: dict Dictionary describing the key-pair (note KeyName)
@@ -47,9 +53,9 @@ def create_key_pair(ec2_client):
 
 def delete_remote_key_pair(ec2_client, key_name):
     """
-    Deletes the argument key-pair
+    Deletes the remote argument key-pair.
 
-    Boto3 EC2.Client.delete_key_pair(**kwargs) documentation
+    Boto3 EC2.Client.delete_key_pair(**kwargs) documentationL
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_key_pair.html
 
     :param ec2_client: EC2 client handle
@@ -63,14 +69,12 @@ def delete_remote_key_pair(ec2_client, key_name):
     return response # dict Return Boolean KeyPairId String
 
 def delete_local_key_pair():
-    return os.remove('JOMahony_A01_RSA.pem')
+    """
+    Deletes the local key-pair named JOMahony_A01_RSA.pem if it exists.
 
-def get_all_key_pairs_str(ec2_client):
-    key_pairs = ec2_client.describe_key_pairs() # TYPEERROR => { 'KeyPairs': [ {'KeyName': ...}, {'KeyName': ...} ] }
-
-    key_pairs_str = "All Key Pairs:\n"
-
-    for key_pair in key_pairs['KeyPairs']: # Outer dict iterated leaving List of Dictionaries
-        key_pairs_str += f"\t{key_pair['KeyName']} | {key_pair['KeyPairId']}\n"
-
-    return key_pairs_str
+    :return: None for success
+    """
+    if os.path.exists("JOMahony_A01_RSA.pem"):
+        return os.remove('JOMahony_A01_RSA.pem')
+    else:
+        return None # If it doesn't exist, return success (this doesn't run when error)
