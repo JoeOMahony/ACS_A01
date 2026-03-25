@@ -1,17 +1,19 @@
 import time
 import requests
+import mimetypes
 from requests import HTTPError
 from urllib.error import URLError
-import mimetypes
 
 def create_bucket(s3_client, ec2_instance_id):
     """
-    Function which creates a publicly-accessible general purpose S3 bucket and returns a dictionary representation of
+    Creates a publicly-accessible general purpose S3 bucket and returns a dictionary representation of
     the bucket attributes.
 
-    - Names the sbucket using the argument EC2 instance ID as follows, joe-omahony-[ec2_instance_id]
+    Function:
+    - Names the bucket using the argument EC2 instance ID as follows, joe-omahony-[ec2_instance_id]
     - Creates the bucket with object lock disabled.
-    - Once the bucket exists, the public access block is removed.
+    - Changing object ownership to BucketOwnerPreferred was required as the default BucketOwnerEnforced prevented assigning the public-read ACL.
+    - Waits until the bucket exists, then removes the public access block.
     - A dictionary representing the bucket attributes is returned.
 
     **StackOverflow reference:**
@@ -22,37 +24,40 @@ def create_bucket(s3_client, ec2_instance_id):
     A search resulted in this post, which solved my issue with "Use & as a delimiter between tag values
     like "Key1=Value1"&"Key2=Value2..."
 
-    Boto3 documentation for s3_client.create_bucket()
+    Boto3 documentation for s3_client.create_bucket():
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/create_bucket.html
 
-    Boto3 documentation for S3.Client.get_waiter(waiter_name)
+    Boto3 documentation for S3.Client.get_waiter(waiter_name):
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/get_waiter.html
 
-    Boto3 documentation for S3 waiters
+    Boto3 documentation for S3 waiters:
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#waiters
 
-    Boto3 documentation for S3 BucketExists waiter
+    Boto3 documentation for S3 BucketExists waiter:
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/waiter/BucketExists.html
 
-    Boto3 documentation for s3_client.delete_public_access_block(**kwargs)
+    Boto3 documentation for s3_client.delete_public_access_block(**kwargs):
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/delete_public_access_block.html
 
-    Boto3 documentation for s3_client.put_public_access_block(**kwargs)
+    Boto3 documentation for s3_client.put_public_access_block(**kwargs):
+    https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
+
+    Boto3 documentation for s3_client.put_bucket_acl():
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
 
     :param s3_client: S3 Client Handle
-    :param ec2_instance_id: EC2 Instance ID used in the bucket name -> joe-omahony-[ec2_instance_id]
-    :return: bucket Dictionary with the created bucket's attributes
+    :param ec2_instance_id: EC2 Instance ID used to form the bucket name
+    :return: bucket dictionary representation
     """
     bucket_name = 'joe-omahony-' + ec2_instance_id
 
     bucket = s3_client.create_bucket(
         # ACL='public-read' (InvalidBucketAclWithObjectOwnership)
         # Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting
-        # ACL='public-read', NEED TO CREATE BUCKET FIRST # Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting
+        # ACL='public-read', NEED TO CREATE BUCKET FIRST
         Bucket=bucket_name,
         CreateBucketConfiguration={
-            # 'LocationConstraint': 'us-east-1', (InvalidLocationConstraint)
+            # 'LocationConstraint': 'us-east-1', (InvalidLocationConstraint) / EC2 Handles are given region
             'Tags': [
                 {'Key': 'CreatedBy', 'Value': 'JoeOMahony'},
                 {'Key': 'Module', 'Value': 'AutomatedCloudServices'},
@@ -61,11 +66,10 @@ def create_bucket(s3_client, ec2_instance_id):
         },
         ObjectLockEnabledForBucket=False, # Check later
         ObjectOwnership = 'BucketOwnerPreferred',
-
     )
 
     # could use s3 resource handle instead of below, but will stick with this to match ec2
-    waiter = s3_client.get_waiter('bucket_exists') # needed to avoid error with below
+    waiter = s3_client.get_waiter('bucket_exists') # needed to avoid error with delete_public_access_block()
     waiter.wait(
         Bucket = bucket_name,
     )
@@ -85,6 +89,27 @@ def create_bucket(s3_client, ec2_instance_id):
     return bucket
 
 def get_image_object(obj_url_input):
+    """
+    Retrieves and returns an image from the argument URL or the default image.
+
+    **Use of HTTP User-Agent header:**
+
+    - Sets HTTP User-Agent header (from my machine) as all requests were denied without it (HTTP Error 403: Forbidden).
+    - Requests were implemented from urllib instead of the standard urlopen() because of this eventual need to set headers.
+    - Please see my reference on this below.
+
+    Reference for the Wikimedia Foundation document explaining the need to use a user agent, and also how to implement:
+    https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
+
+    Default image used:
+    https://upload.wikimedia.org/wikipedia/commons/b/bd/Waterford_Institute_of_Technology%2C_2021-06-01%2C_06.jpg
+
+    Python documentation for the urllib.request module:
+    https://docs.python.org/3/library/urllib.request.html#module-urllib.request
+
+    :param obj_url_input: Image URL to be fetched or 'NONE' for the default image
+    :return: Binary representation of the argument or default image for an S3 object
+    """
     # https://docs.python.org/3/library/urllib.request.html#module-urllib.request
     # urllib.request.urlopen(url, data=None, [timeout, ]*, context=None)
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
@@ -99,12 +124,9 @@ def get_image_object(obj_url_input):
 
     except URLError: # Raises URLError on protocol errors.
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
-    # image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+        # image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
 
-    except HTTPError: # Thrown if no user agent or site denited - urllib.error.HTTPError: HTTP Error 403: Forbidden
-        # REFACTOR THIS LATER TO JUST USE TRY-CATCH FOR THE VARIABLE, NOT URLOPEN CALL
-        # object_url = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
-        # urllib.error.HTTPError: HTTP Error 403: Forbidden
+    except HTTPError: # Thrown if no user agent or site denied - urllib.error.HTTPError: HTTP Error 403: Forbidden
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
 
     except Exception:
@@ -112,48 +134,54 @@ def get_image_object(obj_url_input):
 
     return image
 
-# https://docs.python.org/3/library/mimetypes.html#mimetypes.guess_type
 def guess_mime_type(obj_url_input):
+    """
+    Uses MIME guesser to guess the argument URL's MIME type for S3 object display in index.html document.
+
+    Python documentation for the MIME type guesser module's guess_type function:
+    https://docs.python.org/3/library/mimetypes.html#mimetypes.guess_type
+
+    :param obj_url_input: Image URL to be fetched or 'NONE' for the default image
+    :return: Guessed MIME type or 'image/jpg' (type of default image)
+    """
     # (type, encoding) = mimetypes.guess_type(obj_url_input)
     # return (type, encoding)
     # Invalid type for parameter ContentEncoding, value: None, type: <class 'NoneType'>, valid types: <class 'str'>
     (mime_type, encoding) = mimetypes.guess_type(obj_url_input)
 
+    # The default image is image/jpg, so this is used as the fallback
     if mime_type is None:
-        mime_type = 'image/png' # type is None if the type can't be guessed (no or unknown suffix)
+        mime_type = 'image/jpg' # type is None if the type can't be guessed (no or unknown suffix)
 
     try:
         if not str(mime_type).startswith('image/'):
-            mime_type = 'image/png'
+            mime_type = 'image/jpg'
     except Exception:
-        mime_type = 'image/png'
+        mime_type = 'image/jpg'
 
     return mime_type
 
 def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
     """
-    Function which puts an image object into the S3 bucket.
+    Function which puts an image object into an S3 bucket (arguments).
 
-    Specifies the MIME type, as this is required for images to render/not give an error when its expecting
-     UTF-8 text encoding by default
-
-    AWS documentation on naming S3 objects
+    AWS documentation on naming S3 objects:
     https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
 
-    Boto3 documentation on S3.Client.put_object(**kwargs)
+    Boto3 documentation on S3.Client.put_object(**kwargs):
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html
 
-    Boto3 documentating for upload files (showed me MIME types needed + binary read with open)
+    Boto3 documentating for upload files (showed me MIME types needed + binary read with open):
     https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
 
-    :param mime_type:
-    :param encoding:
-    :param s3_client:
-    :param bucket_name:
-    :param image: image
-    :param ec2_instance_id:
-    :return:
+    :param mime_type: MIME type of the image
+    :param s3_client: S3 client handle
+    :param bucket_name: S3 bucket to add the object to
+    :param image: Binary image representation
+    :param ec2_instance_id: EC2 instance ID used in naming the object
+    :return: Created S3 object dictionary representation
     """
+    # Since S3 bucket name also uses 'joe-omahony-' + ec2_instance_id, I could reactor this
     # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
     object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
 
@@ -162,7 +190,7 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
         Body=image,
         Bucket=bucket_name,
         Key=object_name,
-        # REFERENCE: Full StackOverflow reference for the below Tagging key-pair in function documentation
+        # REFERENCE: Full StackOverflow reference in create_bucket() function at the top
         Tagging='CreatedBy=JoeOMahony&Module=AutomatedCloudServices&Assignment=AutomatedCloudServices',
         ContentType=mime_type, # MIME type required here for local file upload
     )
@@ -178,40 +206,28 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
 
 def list_all_buckets(s3_client):
     """
-https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/list_buckets.html
+    Returns a list of dictionary representations of all S3 buckets.
 
-    Response Syntax
+    Boto3 documentation for s3_client.list_buckets() function:
+    https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/list_buckets.html
 
-{
-    'Buckets': [
-        {
-            'Name': 'string',
-            'CreationDate': datetime(2015, 1, 1),
-            'BucketRegion': 'string',
-            'BucketArn': 'string'
-        },
-    ],
-    'Owner': {
-        'DisplayName': 'string',
-        'ID': 'string'
-    },
-    'ContinuationToken': 'string',
-    'Prefix': 'string'
-}
-
-    :param s3_client:
-    :return:
+    :param s3_client: S3 client handle
+    :return: List of dictionary bucket representations
     """
+    # Response Syntax {'Buckets': [{'Name': 'string',
     response = s3_client.list_buckets()
     return response['Buckets']
 
 def delete_objects(s3_client, bucket_name):
     """
+    Deletes all objects in the argument bucket.
+
+    Boto3 documentation for s3_client.delete_objects() function:
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/delete_object.html
 
-    :param s3_client:
-    :param bucket_name:
-    :return:
+    :param s3_client: S3 client handle
+    :param bucket_name: S3 bucket name to delete all objects from
+    :return: True if all objects were successfully deleted, error thrown otherwise
     """
     bucket_objects = s3_client.list_objects(
         Bucket=bucket_name,
@@ -230,6 +246,13 @@ def delete_objects(s3_client, bucket_name):
 
 
 def delete_bucket(s3_client, bucket_name):
+    """
+    Deletes the argument bucket after deleting all objects within.
+
+    :param s3_client: S3 client handle
+    :param bucket_name: S3 bucket name to be deleted, including all objects within
+    :return: True if all objects and the bucket were deleted, False if not.
+    """
     delete_all_objects = delete_objects(s3_client, bucket_name)
 
     if delete_all_objects:
