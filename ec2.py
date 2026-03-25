@@ -104,7 +104,7 @@ def create_security_group(ec2_client):
             ],
         )
 
-    return security_group_id
+        return security_group_id # Moved - Local variable 'security_group_id' might be referenced before assignment
 
 def delete_security_group(ec2_client, group_name):
     """

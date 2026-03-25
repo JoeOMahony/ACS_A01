@@ -68,7 +68,7 @@ def create_bucket(s3_client, ec2_instance_id):
         ObjectOwnership = 'BucketOwnerPreferred',
     )
 
-    # could use s3 resource handle instead of below, but will stick with this to match ec2
+    # could use s3 resource handle instead of below, but will stick with this to match the rest
     waiter = s3_client.get_waiter('bucket_exists') # needed to avoid error with delete_public_access_block()
     waiter.wait(
         Bucket = bucket_name,
