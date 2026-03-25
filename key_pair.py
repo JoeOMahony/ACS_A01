@@ -32,6 +32,10 @@ def create_key_pair(ec2_client):
 
     # DOCS: KeyMaterial (string) –
     # An unencrypted PEM encoded RSA or ED25519 private key.
+    # because hard-coded, need to existence check to avoid errors
+    if os.path.exists("JOMahony_A01_RSA.pem"):
+        os.remove("JOMahony_A01_RSA.pem")
+
     with open('JOMahony_A01_RSA.pem', 'w') as file:
         file.write(response['KeyMaterial'])
 

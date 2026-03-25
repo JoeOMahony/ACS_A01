@@ -1,17 +1,18 @@
 import time
-import subprocess
 import boto3
+from botocore.exceptions import ClientError
+
 import ec2
 import s3
 import key_pair as kp
 
-ec2_data_script = """#!/bin/bash
-dnf update
-dnf upgrade -y
-dnf install -y httpd
-systemctl enable httpd
-systemctl start httpd
-"""
+# ec2_data_script = """#!/bin/bash
+# dnf update
+# dnf upgrade -y
+# dnf install -y httpd
+# systemctl enable httpd
+# systemctl start httpd
+# """
 
 divider = '=========================='*3
 
@@ -32,7 +33,7 @@ print('\tSuccessfully created local key with name: JOMahony_A01_RSA.pem')
 print(divider)
 
 print('Creating EC2 instance and waiting for running state...')
-ec2_instance_id = ec2.create_instance(ec2_resource, ec2_client, key_name, ec2_data_script)
+ec2_instance_id = ec2.create_instance(ec2_resource, ec2_client, key_name, ec2.get_user_data_script())
 ec2_instance_availability_zone = ec2.get_instance_availability_zone(ec2_resource, ec2_instance_id)
 print('\tSuccessfully created instance with ID: ', ec2_instance_id)
 print('\t\tin availability zone: ', ec2_instance_availability_zone)
@@ -46,12 +47,11 @@ print(divider)
 obj_url_input = input("Please enter an image URL to be displayed on the website. Enter NONE to use the default image => ").strip()
 image = s3.get_image_object(obj_url_input)
 mime_type = s3.guess_mime_type(obj_url_input)
+s3_object_details = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, image, mime_type)
 
-    # obj_url_input = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+# obj_url_input = 'https://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
 # setu_image = open('images/setu.png','rb') # docs specify must be opened in binary mode, then specify MIME type
 # # https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
-
-s3_object_details = s3.put_object(s3_client, s3_bucket['BucketName'], ec2_instance_id, image, mime_type)
 
 # {'BucketName': 'joe-omahony-i-00eb297585ef6df93', 'ObjKey': 'joe-omahony-i-00eb297585ef6df93-obj-1774359755187547000'}
 print('\tCreating S3 objects to put in bucket...')
@@ -72,65 +72,80 @@ ec2.create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
 instance = ec2_resource.Instance(ec2_instance_id)
 instance.reload()
 
-# consider move to EC2
-def check_apache_running():
-    def check_httpd_active():
-        result = subprocess.run([
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-i",
-            "JOMahony_A01_RSA.pem",
-            f"ec2-user@{instance.public_ip_address}",
-            "service httpd status"
-        ], text=True, capture_output=True)
+# # consider move to EC2
+# def check_apache_running():
+#     def check_httpd_active():
+#         result = subprocess.run([
+#             "ssh",
+#             "-o",
+#             "StrictHostKeyChecking=no",
+#             "-i",
+#             "JOMahony_A01_RSA.pem",
+#             f"ec2-user@{instance.public_ip_address}",
+#             "service httpd status"
+#         ], text=True, capture_output=True)
+#
+#         # https://docs.python.org/3/library/functions.html
+#         # "Active: active (running)" shows when actually running alongside PID, etc.
+#         if result.stdout.find("Active: active (running)") > 0: # -1 == not found
+#             return True
+#
+#         return False
+#
+#     ctr = 0
+#     while not check_httpd_active():
+#         ctr += 1
+#         print(f"\t[{ctr}] Waiting for the web server to come online (refreshes every 15 seconds)")
+#         time.sleep(15)
+#
+#         if ctr > 40:
+#             break
 
-        # https://docs.python.org/3/library/functions.html
-        # "Active: active (running)" shows when actually running alongside PID, etc.
-        if result.stdout.find("Active: active (running)") > 0: # -1 == not found
-            return True
-
-        return False
-
+def check_apache_running(ec2_instance):
+    # in here because I'm keeping all print calls in this script
     ctr = 0
-    while not check_httpd_active():
+    while not ec2.check_httpd_active(ec2_instance):
         ctr += 1
         print(f"\t[{ctr}] Waiting for the web server to come online (refreshes every 15 seconds)")
         time.sleep(15)
 
         if ctr > 40:
             break
+check_apache_running(instance)
 
-check_apache_running()
+#
+# # https://docs.python.org/3/library/subprocess.html
+# # StrictHostKeyChecking=no is a workaround, without it the connection is refused.
+# # In the CLI, you need to confirm whether or not to add the host key on first connection, but I couldn't just run
+# # another subprocess with a 'yes' argument and continue on.
+# subprocess.run([
+#     "scp",
+#     "-o",
+#     "StrictHostKeyChecking=no",
+#     "-i",
+#     "JOMahony_A01_RSA.pem",
+#     "index.html",
+#     f"ec2-user@{instance.public_ip_address}:"
+# ], check=True) # Silent fail without, continues on
+#
+# subprocess.run([
+#     "ssh",
+#     "-o",
+#     "StrictHostKeyChecking=no",
+#     "-i",
+#     "JOMahony_A01_RSA.pem",
+#     f"ec2-user@{instance.public_ip_address}",
+#     "sudo mv ~/index.html /var/www/html/index.html"
+# ], check=True)
 
-# https://docs.python.org/3/library/subprocess.html
-# StrictHostKeyChecking=no is a workaround, without it the connection is refused.
-# In the CLI, you need to confirm whether or not to add the host key on first connection, but I couldn't just run
-# another subprocess with a 'yes' argument and continue on.
-subprocess.run([
-    "scp",
-    "-o",
-    "StrictHostKeyChecking=no",
-    "-i",
-    "JOMahony_A01_RSA.pem",
-    "index.html",
-    f"ec2-user@{instance.public_ip_address}:"
-], check=True) # Silent fail without, continues on
+ec2.transfer_index_to_ec2(instance)
 
-subprocess.run([
-    "ssh",
-    "-o",
-    "StrictHostKeyChecking=no",
-    "-i",
-    "JOMahony_A01_RSA.pem",
-    f"ec2-user@{instance.public_ip_address}",
-    "sudo mv ~/index.html /var/www/html/index.html"
-], check=True)
 print('\tSuccessfully completed remote configuration')
 print(divider)
 
 print('Web server ready for access...')
 print('\tPublic IP address: ', instance.public_ip_address)
+# noinspection HttpUrlsUsage
 print(f"\tWeb address: http://{instance.public_ip_address}")
 print(divider)
 
@@ -162,8 +177,13 @@ print(divider)
 
 print('Deleting security group...')
 delete_security_group_return = ec2.delete_security_group(ec2_client, 'EC2_public_access')
-if delete_security_group_return['Return']:
-    print('\tSuccessfully deleted security group with name: EC2_public_access')
+try:
+    if delete_security_group_return['Return']:
+        print('\tSuccessfully deleted security group with name: EC2_public_access')
+except ClientError: # TypeError: 'ClientError' object is not subscriptable
+    print('\tFailed to delete security group with name: EC2_public_access')
+    print('\tPlease ensure there are no resources previously created by this program tied to this security group')
+    print('\t\tThis error is thrown when this program is run after previously being interrupted and unable to remove resources')
 print(divider)
 
 print('Remotely and locally deleting RSA key-pair...')

@@ -1,7 +1,15 @@
 import os
-
+import subprocess
 from botocore.exceptions import ClientError, WaiterError
 
+def get_user_data_script():
+    return """#!/bin/bash
+    dnf update
+    dnf upgrade -y
+    dnf install -y httpd
+    systemctl enable httpd
+    systemctl start httpd
+    """
 
 def get_default_vpc_id(ec2_client):
     """
@@ -165,8 +173,8 @@ def delete_security_group(ec2_client, group_name):
 
     Can't have dependent objects for deletion
 https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_security_group.html
+    :param group_name:
     :param ec2_client:
-    :param ec2_resource:
     :return:
     """
     try:
@@ -211,7 +219,7 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     :param user_data: Bash script to pass to the EC2
     :return: created_instance_id EC2 instance ID
     """
-    default_subnet_id = get_subnet_id_default_vpc(ec2_client)
+    # default_subnet_id = get_subnet_id_default_vpc(ec2_client)
     # default_security_group_id = get_security_group_id_default_vpc(ec2_client)
     instance = ec2_resource.create_instances(
         ImageId='ami-0f3caa1cf4417e51b', # latest Amazon Linux LTS AMI
@@ -249,7 +257,7 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
             #     'MaxAttempts': 20 # default 40
             # },
         )
-    except WaiterError as err:
+    except WaiterError:
         """
         botocore.exceptions.WaiterError: Waiter InstanceRunning failed: Waiter encountered a terminal failure state: For expression "Reservations[].Instances[].State.Name" we matched expected path: "shutting-down" at least once
 """
@@ -362,6 +370,8 @@ def get_instance_availability_zone(ec2_resource, instance_id):
     return availability_zone
 
 def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_object_details):
+    if os.path.exists("index.html"): # since hard-coded, need to existence check
+        os.remove("index.html")
 
     # reference for EC2 Obj bucket URL https://stackoverflow.com/questions/48608570/python-3-boto-3-aws-s3-get-object-url
     ec2_html_script = f"""
@@ -389,3 +399,46 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
 def delete_index_document():
     # https://docs.python.org/3/library/os.html#os.remove
     os.remove("index.html")
+
+def check_httpd_active(instance):
+    result = subprocess.run([
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-i",
+        "JOMahony_A01_RSA.pem",
+        f"ec2-user@{instance.public_ip_address}",
+        "service httpd status"
+    ], text=True, capture_output=True)
+
+    # https://docs.python.org/3/library/functions.html
+    # "Active: active (running)" shows when actually running alongside PID, etc.
+    if result.stdout.find("Active: active (running)") > 0: # -1 == not found
+        return True
+
+    return False
+
+def transfer_index_to_ec2(instance):
+    # https://docs.python.org/3/library/subprocess.html
+    # StrictHostKeyChecking=no is a workaround, without it the connection is refused.
+    # In the CLI, you need to confirm whether or not to add the host key on first connection, but I couldn't just run
+    # another subprocess with a 'yes' argument and continue on.
+    subprocess.run([
+        "scp",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-i",
+        "JOMahony_A01_RSA.pem",
+        "index.html",
+        f"ec2-user@{instance.public_ip_address}:"
+    ], check=True)  # Silent fail without, continues on
+
+    subprocess.run([
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-i",
+        "JOMahony_A01_RSA.pem",
+        f"ec2-user@{instance.public_ip_address}",
+        "sudo mv ~/index.html /var/www/html/index.html"
+    ], check=True)
