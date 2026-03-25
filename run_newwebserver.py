@@ -1,5 +1,6 @@
 import sys
 import time
+import webbrowser
 import boto3
 import ec2
 import s3
@@ -123,7 +124,8 @@ def configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availa
 
 def display_web_server_details(instance):
     """
-    Displays the public IP and URL of the web server
+    Displays the public IP and URL of the web server, then asks the user if they'd like it
+    automatically opened in a new tab in their browser.
 
     :param instance: EC2 instance resource
     """
@@ -131,7 +133,28 @@ def display_web_server_details(instance):
     print('\tPublic IP address: ', instance.public_ip_address)
     # noinspection HttpUrlsUsage
     print(f"\tWeb address: http://{instance.public_ip_address}")
+    # https://docs.python.org/3/library/webbrowser.html
+    auto_open_browser = input('Would you like this page automatically opened in your browser? (Y/N) => ')
+    if auto_open_browser.strip().upper() == 'Y':
+        webbrowser.open_new_tab(f"http://{instance.public_ip_address}")
     print(divider)
+
+def display_log_analysis(instance):
+    """
+    Dialogue option that allows users to see how many HTTP requests the web server
+    received.
+
+    :param instance: EC2 instance resource
+    """
+    print('Log analysis started...')
+    print('\tEnter R to refresh')
+    print('\tEnter Q to quit')
+    while True:
+        user_input = input()
+        if user_input.strip().upper() == 'Q':
+            return False
+        elif user_input.strip().upper() == 'R':
+            print('Request counter: ', ec2.get_server_access_log(instance))
 
 def resource_deletion_option():
     """
@@ -250,6 +273,9 @@ def main():
 
     # Display web server details
     display_web_server_details(instance)
+
+    # UI loop for log analysis
+    display_log_analysis(instance)
 
     # UI loop for deletion
     resource_deletion_option()

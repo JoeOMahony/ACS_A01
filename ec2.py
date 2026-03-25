@@ -13,7 +13,7 @@ def get_user_data_script():
     :return: Bash script for updating, upgrading, and installing Apache server on Linux distros.
     """
     return """#!/bin/bash
-    dnf update
+    dnf update -y
     dnf upgrade -y
     dnf install -y httpd
     systemctl enable httpd
@@ -277,7 +277,7 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
     <li><b>Instance ID:</b> {ec2_instance_id}</li>
     <li><b>Server availability zone:</b> {ec2_instance_availability_zone}</li>
     </ul>
-    <img src="https://{s3_object_details['BucketName']}.s3.amazonaws.com/{s3_object_details['ObjKey']}">
+    <img src="https://{s3_object_details['BucketName']}.s3.amazonaws.com/{s3_object_details['ObjKey']}" style="max-width: 600px; height: auto;">
     </body>
     </html>
     """
@@ -367,3 +367,37 @@ def transfer_index_to_ec2(instance):
         f"ec2-user@{instance.public_ip_address}",
         "sudo mv ~/index.html /var/www/html/index.html"
     ], check=True)
+
+def get_server_access_log(instance):
+    """
+    Connects to the argument instance via SSH and counts how many HTTP requests
+    have been made to the web server.
+
+    - Uses /var/log/httpd/access_log to count HTTP requests.
+    - access_log will be empty without any requests made.
+    - Uses command: sudo cat /var/log/httpd/access_log
+
+    Apache documentation for web server logs:
+    https://httpd.apache.org/docs/2.4/logs.html
+
+    :param instance: EC2 instance handle
+    :return: Count of how many HTTP requests the server has received
+    """
+    result = subprocess.run([
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-i",
+        "JOMahony_A01_RSA.pem",
+        f"ec2-user@{instance.public_ip_address}",
+        "sudo cat /var/log/httpd/access_log"
+    ], text=True, capture_output=True)
+    # [ec2-user@ip-172-31-24-80 log]$ sudo cat /var/log/httpd/access_log
+    # X.X.X.X - - [25/Mar/2026:16:27:46 +0000] "GET / HTTP/1.1" 200 481 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
+    # X.X.X.X - - [25/Mar/2026:16:27:47 +0000] "GET /favicon.ico HTTP/1.1" 404 236 "http://75.101.203.7/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
+
+    ctr = 0
+    for line in result.stdout.splitlines():
+        ctr += 1
+
+    return ctr
