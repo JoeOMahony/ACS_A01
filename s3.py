@@ -3,6 +3,7 @@ import requests
 import mimetypes
 from requests import HTTPError
 from urllib.error import URLError
+from botocore.exceptions import ClientError
 
 def create_bucket(s3_client, ec2_instance_id):
     """
@@ -49,44 +50,52 @@ def create_bucket(s3_client, ec2_instance_id):
     :param ec2_instance_id: EC2 Instance ID used to form the bucket name
     :return: bucket dictionary representation
     """
-    bucket_name = 'joe-omahony-' + ec2_instance_id
+    try:
+        bucket_name = 'joe-omahony-' + ec2_instance_id
 
-    bucket = s3_client.create_bucket(
-        # ACL='public-read' (InvalidBucketAclWithObjectOwnership)
-        # Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting
-        # ACL='public-read', NEED TO CREATE BUCKET FIRST
-        Bucket=bucket_name,
-        CreateBucketConfiguration={
-            # 'LocationConstraint': 'us-east-1', (InvalidLocationConstraint) / EC2 Handles are given region
-            'Tags': [
-                {'Key': 'CreatedBy', 'Value': 'JoeOMahony'},
-                {'Key': 'Module', 'Value': 'AutomatedCloudServices'},
-                {'Key': 'Assignment', 'Value': 'Assignment01'}
-            ],
-        },
-        ObjectLockEnabledForBucket=False, # Check later
-        ObjectOwnership = 'BucketOwnerPreferred',
-    )
+        bucket = s3_client.create_bucket(
+            # ACL='public-read' (InvalidBucketAclWithObjectOwnership)
+            # Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting
+            # ACL='public-read', NEED TO CREATE BUCKET FIRST
+            Bucket=bucket_name,
+            CreateBucketConfiguration={
+                # 'LocationConstraint': 'us-east-1', (InvalidLocationConstraint) / EC2 Handles are given region
+                'Tags': [
+                    {'Key': 'CreatedBy', 'Value': 'JoeOMahony'},
+                    {'Key': 'Module', 'Value': 'AutomatedCloudServices'},
+                    {'Key': 'Assignment', 'Value': 'Assignment01'}
+                ],
+            },
+            ObjectLockEnabledForBucket=False, # Check later
+            ObjectOwnership = 'BucketOwnerPreferred',
+        )
 
-    # could use s3 resource handle instead of below, but will stick with this to match the rest
-    waiter = s3_client.get_waiter('bucket_exists') # needed to avoid error with delete_public_access_block()
-    waiter.wait(
-        Bucket = bucket_name,
-    )
+        # could use s3 resource handle instead of below, but will stick with this to match the rest
+        waiter = s3_client.get_waiter('bucket_exists') # needed to avoid error with delete_public_access_block()
+        waiter.wait(
+            Bucket = bucket_name,
+        )
 
-    s3_client.delete_public_access_block(
-        Bucket=bucket_name,
-    )
+        s3_client.delete_public_access_block(
+            Bucket=bucket_name,
+        )
 
-    # https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
-    s3_client.put_bucket_acl(
-        ACL='public-read',
-        Bucket=bucket_name,
-    )
+        # https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
+        s3_client.put_bucket_acl(
+            ACL='public-read',
+            Bucket=bucket_name,
+        )
 
-    bucket.update({'BucketName': bucket_name})  # bucket Dict only contains ARN/Location, need to add bucket_name
+        bucket.update({'BucketName': bucket_name})  # bucket Dict only contains ARN/Location, need to add bucket_name
 
-    return bucket
+        return bucket
+    # https://docs.python.org/3/tutorial/errors.html
+    # create_bucket() is critical enough to raise an exception and stop execution
+    except ClientError as client_err:
+        print(f'Error in S3 bucket configuration, check your permissions: {client_err}') # TypeError must convert to String
+        raise # this raises AWS' ClientError, I can't put text inside because Boto3 specifies mandatory arguments that I don't want
+    except Exception as err:
+        raise Exception(f'General error when creating an S3 bucket: {err}')
 
 def get_image_object(obj_url_input):
     """
@@ -121,16 +130,18 @@ def get_image_object(obj_url_input):
 
         # https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
         image = requests.get(obj_url_input, timeout=timeout, headers=headers).content
-
-    except URLError: # Raises URLError on protocol errors.
+    except URLError as url_err: # Raises URLError on protocol errors.
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
         # image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
+        print(f'A URL error occurred with your link, will fallback to default image. Error: {url_err}')
 
-    except HTTPError: # Thrown if no user agent or site denied - urllib.error.HTTPError: HTTP Error 403: Forbidden
+    except HTTPError as http_err: # Thrown if no user agent or site denied - urllib.error.HTTPError: HTTP Error 403: Forbidden
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
+        print(f'An HTTP error occurred, will fallback to default image. Error: {http_err}')
 
-    except Exception:
+    except Exception as err:
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
+        print(f'An HTTP error occurred, will fallback to default image. Error: {err}')
 
     return image
 
@@ -156,9 +167,9 @@ def guess_mime_type(obj_url_input):
     try:
         if not str(mime_type).startswith('image/'):
             mime_type = 'image/jpg'
-    except Exception:
+    except Exception as err:
+        print(f'Default image will be used, an exception occurred when guessing the MIME type from your URL: {err}')
         mime_type = 'image/jpg'
-
     return mime_type
 
 def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
@@ -181,28 +192,32 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
     :param ec2_instance_id: EC2 instance ID used in naming the object
     :return: Created S3 object dictionary representation
     """
-    # Since S3 bucket name also uses 'joe-omahony-' + ec2_instance_id, I could reactor this
-    # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
-    object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
+    try:
+        # Since S3 bucket name also uses 'joe-omahony-' + ec2_instance_id, I could reactor this
+        # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
+        object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
 
-    s3_client.put_object(
-        ACL='public-read',
-        Body=image,
-        Bucket=bucket_name,
-        Key=object_name,
-        # REFERENCE: Full StackOverflow reference in create_bucket() function at the top
-        Tagging='CreatedBy=JoeOMahony&Module=AutomatedCloudServices&Assignment=AutomatedCloudServices',
-        ContentType=mime_type, # MIME type required here for local file upload
-    )
+        s3_client.put_object(
+            ACL='public-read',
+            Body=image,
+            Bucket=bucket_name,
+            Key=object_name,
+            # REFERENCE: Full StackOverflow reference in create_bucket() function at the top
+            Tagging='CreatedBy=JoeOMahony&Module=AutomatedCloudServices&Assignment=AutomatedCloudServices',
+            ContentType=mime_type, # MIME type required here for local file upload
+        )
 
-    # Adding as I need the key
-    obj_details = {
-        'BucketName': bucket_name,
-        'ObjKey': object_name,
-    }
-
-    return obj_details
-
+        # Adding as I need the key
+        obj_details = {
+            'BucketName': bucket_name,
+            'ObjKey': object_name,
+        }
+        return obj_details
+    except ClientError as client_err:
+        print(f'A user configuration error occurred when putting the object in the bucket, check your permissions: {client_err}')
+        raise
+    except Exception as err:
+        raise Exception(f'A general error occurred when putting the object in the bucket: {err}')
 
 def list_all_buckets(s3_client):
     """
@@ -214,9 +229,22 @@ def list_all_buckets(s3_client):
     :param s3_client: S3 client handle
     :return: List of dictionary bucket representations
     """
-    # Response Syntax {'Buckets': [{'Name': 'string',
-    response = s3_client.list_buckets()
-    return response['Buckets']
+    try:
+        # Response Syntax {'Buckets': [{'Name': 'string',
+        response = s3_client.list_buckets()
+        # TypeError: 'NoneType' object is not iterable // not an empty list, response['Buckets'] = None
+        if response['Buckets']:
+            return response['Buckets']
+        else:
+            print('No buckets found') # Something has went wrong for this to be called without buckets, print warning
+            return []
+    # I don't view list_all_buckets() as critical enough to stop program execution, so no raise
+    except ClientError as client_err:
+        print(f'A user configuration error occurred when listing the buckets, check your permissions: {client_err}')
+        print('Please view the buckets manually on the AWS website')
+    except Exception as err:
+        print(f'A general error occurred when listing all S3 buckets: {err}')
+        print('Please view the buckets manually on the AWS website')
 
 def delete_objects(s3_client, bucket_name):
     """
@@ -229,21 +257,29 @@ def delete_objects(s3_client, bucket_name):
     :param bucket_name: S3 bucket name to delete all objects from
     :return: True if all objects were successfully deleted, error thrown otherwise
     """
-    bucket_objects = s3_client.list_objects(
-        Bucket=bucket_name,
-    )
-
-    # 'Contents': [
-    #         {
-    #             'ETag': '"70ee1738b6b21e2c8a43f3a5ab0eee71"',
-    #             'Key': 'example1.jpg', ...
-    for bucket_object in bucket_objects['Contents']:
-        s3_client.delete_object(
+    try:
+        bucket_objects = s3_client.list_objects(
             Bucket=bucket_name,
-            Key=bucket_object['Key'],
         )
-    return True # come back to verify later
 
+        # 'Contents': [
+        #         {
+        #             'ETag': '"70ee1738b6b21e2c8a43f3a5ab0eee71"',
+        #             'Key': 'example1.jpg', ...
+        for bucket_object in bucket_objects['Contents']:
+            s3_client.delete_object(
+                Bucket=bucket_name,
+                Key=bucket_object['Key'],
+            )
+        return True # verifies that delete_bucket() can run
+    except ClientError as client_err:
+        print(f'An error occurred when deleting all objects in the bucket, check your permissions: {client_err}')
+        print('Please delete the objects manually on the AWS website')
+        return False
+    except Exception as err:
+        print(f'A general error occurred when deleting all objects in the bucket: {err}')
+        print('Please delete the objects manually on the AWS website')
+        return False
 
 def delete_bucket(s3_client, bucket_name):
     """
@@ -253,21 +289,30 @@ def delete_bucket(s3_client, bucket_name):
     :param bucket_name: S3 bucket name to be deleted, including all objects within
     :return: True if all objects and the bucket were deleted, False if not.
     """
-    delete_all_objects = delete_objects(s3_client, bucket_name)
+    try:
+        delete_all_objects = delete_objects(s3_client, bucket_name)
 
-    if delete_all_objects:
-        s3_client.delete_bucket( # returns None
-            Bucket = bucket_name,
-        )
+        if delete_all_objects:
+            s3_client.delete_bucket( # returns None
+                Bucket = bucket_name,
+            )
 
-        all_buckets = list_all_buckets(s3_client)
-        #   'Buckets': [
-        #         {
-        #             'Name': 'string', ...
-        for bucket in all_buckets: # list
-            if bucket['Name'] == bucket_name:
-                return False
+            all_buckets = list_all_buckets(s3_client)
+            #   'Buckets': [
+            #         {
+            #             'Name': 'string', ...
+            for bucket in all_buckets: # list
+                if bucket['Name'] == bucket_name:
+                    return False
 
-        return True
+            return True
 
-    return False
+        return False
+    except ClientError as client_err:
+        print(f'An error occurred when deleting the bucket, check the bucket is empty and your permissions: {client_err}')
+        print('Please delete the bucket manually on the AWS website')
+        return False
+    except Exception as err:
+        print(f'A general error occurred when deleting the bucket: {err}')
+        print('Please delete the bucket manually on the AWS website')
+        return False
