@@ -155,7 +155,7 @@ def delete_security_group(ec2_client, group_name):
     except ClientError as client_err:
         print(
             f'A client error occurred when deleting the security group, check if the SG still has dependent resources: {client_err}')
-        return False
+        return {'Return': False}
 
 
 def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
@@ -193,7 +193,7 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     """
     try:
         instance = ec2_resource.create_instances(
-            ImageId='ami-0f3caa1cf4417e51b',  # latest Amazon Linux LTS AMI
+            ImageId='ami-02dfbd4ff395f2a1b',  # (2026-03-03) Amazon Linux 2023 AMI 2023.10.20260302.1 x86_64 HVM kernel-6.1 ("5-year support")
             MinCount=1,
             MaxCount=1,
             InstanceType='t2.nano',
