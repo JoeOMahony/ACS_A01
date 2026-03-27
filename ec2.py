@@ -1,8 +1,14 @@
+"""
+Script for CRUD operations and management of EC2 instances and their related resources.
+
+:author: Joe O'Mahony (W21788075)
+:date: 27/03/2026
+"""
 import os
 import subprocess
 import time
-
 from botocore.exceptions import ClientError, WaiterError
+
 
 def get_user_data_script():
     """
@@ -22,6 +28,7 @@ def get_user_data_script():
     systemctl start httpd
     """
 
+
 def get_default_vpc_id(ec2_client):
     """
     Returns the ID of the default VPC.
@@ -32,6 +39,8 @@ def get_default_vpc_id(ec2_client):
     Boto3 documentation for ec2_client.describe_vpcs() link:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/describe_vpcs.html
 
+    :exception IndexError: No default VPC on AWS account
+    :exception ClientError: Boto3 client error
     :param ec2_client: EC2 client handle
     :return: The ID of the default VPC
     """
@@ -51,11 +60,13 @@ def get_default_vpc_id(ec2_client):
 
         return default_vpc_id
     except IndexError as index_err:
-        print(f'There is no default VPC on your account. You must have a default VPC on your account to use this program. Error: {index_err}')
+        print(
+            f'There is no default VPC on your account. You must have a default VPC on your account to use this program. Error: {index_err}')
         raise
     except ClientError as client_err:
         print(f'Error in getting default VPC ID, check AWS permissions. Error: {client_err}')
-        raise # no default_vpc_id means no security group created, so major
+        raise  # no default_vpc_id means no security group created, so major
+
 
 def create_security_group(ec2_client):
     """
@@ -77,6 +88,8 @@ def create_security_group(ec2_client):
     Boto3 documentation for EC2 Resource handle security_groups:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/service-resource/security_groups.html
 
+    :exception ClientError: Boto3 client error when no existing EC2_public_access security group
+    :exception Exception: General exception
     :param ec2_client: EC2 client handle
     :return: ID of the created security group
     """
@@ -85,13 +98,14 @@ def create_security_group(ec2_client):
         # Need to make sure it doesn't already exist for testing or error
         existing_security_groups = ec2_client.describe_security_groups(GroupNames=[
             'EC2_public_access',
-        ],)
+        ], )
         # Response dict | first entry in list of security groups | Group Name
         if existing_security_groups['SecurityGroups'][0]['GroupName'] == 'EC2_public_access':
-            return existing_security_groups['SecurityGroups'][0]['GroupId'] # not GroupName (Error:)
-    except ClientError: # EC2 throws an error here instead of an empty list if it doesn't exist.
+            return existing_security_groups['SecurityGroups'][0]['GroupId']  # not GroupName (Error:)
+    except ClientError:  # EC2 throws an error here instead of an empty list if it doesn't exist.
         response = ec2_client.create_security_group(GroupName='EC2_public_access',
-                                                    Description='Joe OMahony ACS Assignment01)', # No apostrophe for O'Mahony
+                                                    Description='Joe OMahony ACS Assignment01)',
+                                                    # No apostrophe for O'Mahony
                                                     VpcId=vpc_id)
         security_group_id = response['GroupId']
 
@@ -106,18 +120,19 @@ def create_security_group(ec2_client):
                  'FromPort': 443,
                  'ToPort': 443,
                  'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
-                {'IpProtocol': 'tcp', # SSH
+                {'IpProtocol': 'tcp',  # SSH
                  'FromPort': 22,
                  'ToPort': 22,
                  'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}
             ],
         )
 
-        return security_group_id # Moved - Local variable 'security_group_id' might be referenced before assignment
+        return security_group_id  # Moved - Local variable 'security_group_id' might be referenced before assignment
     except Exception as err:
         # Because the above relies on the ClientError thrown due to AWS, this is really the only error handling going on
         # I've tried to refactor, but always end up going back to ClientError.
         raise Exception(f'Error occurred while creating the security group: {err}')
+
 
 def delete_security_group(ec2_client, group_name):
     """
@@ -129,15 +144,17 @@ def delete_security_group(ec2_client, group_name):
     Boto3 documentation for ec2_client.delete_security_group():
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_security_group.html
 
+    :exception ClientError: Boto3 client error
     :param group_name: Name of the security group to be deleted
     :param ec2_client: EC2 client handle
     :return: None if successful, ClientError if unsuccessful due to existing dependencies on that security group
     """
     try:
         response = ec2_client.delete_security_group(GroupName=group_name)
-        return response # Response Syntax {'Return': True|False,'GroupId': 'string'}
+        return response  # Response Syntax {'Return': True|False,'GroupId': 'string'}
     except ClientError as client_err:
-        print(f'A client error occurred when deleting the security group, check if the SG still has dependent resources: {client_err}')
+        print(
+            f'A client error occurred when deleting the security group, check if the SG still has dependent resources: {client_err}')
         return False
 
 
@@ -166,6 +183,8 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     Boto3 documentation for the 'Instance Running' waiter_name for ec2_client.get_waiter():
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/waiter/InstanceRunning.html
 
+    :exception ClientError: Boto3 client error
+    :exception WaiterError: Boto3 waiter error when waiting for the instance to be 'running'
     :param ec2_resource: EC2 Resource handle
     :param ec2_client: EC2 Client handle
     :param key_name: RSA key name
@@ -174,7 +193,7 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
     """
     try:
         instance = ec2_resource.create_instances(
-            ImageId='ami-0f3caa1cf4417e51b', # latest Amazon Linux LTS AMI
+            ImageId='ami-0f3caa1cf4417e51b',  # latest Amazon Linux LTS AMI
             MinCount=1,
             MaxCount=1,
             InstanceType='t2.nano',
@@ -197,7 +216,7 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
         )
     except ClientError as client_err:
         print(f'A client error occurred when creating an EC2 instance, check your permissions. Error: {client_err}')
-        raise # major
+        raise  # major
 
     # Returns list of instance objects
     created_instance_id = instance[0].instance_id
@@ -214,10 +233,12 @@ def create_instance(ec2_resource, ec2_client, key_name, user_data=''):
         )
     except WaiterError as waiter_err:
         # botocore.exceptions.WaiterError: ...we matched expected path: "shutting-down" at least once
-        print(f'An error occurred when waiting for the EC2 instance to come online, additional 30 second wait beginning. Error: {waiter_err}')
+        print(
+            f'An error occurred when waiting for the EC2 instance to come online, additional 30 second wait beginning. Error: {waiter_err}')
         time.sleep(30)
 
     return created_instance_id
+
 
 def terminate_instances(ec2_resource, ec2_client, instance_ids):
     """
@@ -226,6 +247,8 @@ def terminate_instances(ec2_resource, ec2_client, instance_ids):
     Boto3 documentation for instance terminated waiter:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/waiter/InstanceTerminated.html
 
+    :exception ClientError: Boto3 client error
+    :exception WaiterError: Boto3 waiter error when waiting for instance state to be 'terminated'
     :param ec2_client: EC2 client handle
     :param ec2_resource: EC2 Resource handle
     :param instance_ids: List of EC2 instance IDs to be terminated
@@ -239,8 +262,9 @@ def terminate_instances(ec2_resource, ec2_client, instance_ids):
             termination_response = instance.terminate()
             responses.append(termination_response)
     except ClientError as client_err:
-        print(f'Client error when terminating EC2 instances, check there are instances running and you have permission to delete them. Error: {client_err}')
-        return responses # return here so no need to attempt the waiter with an extra 30 seconds
+        print(
+            f'Client error when terminating EC2 instances, check there are instances running and you have permission to delete them. Error: {client_err}')
+        return responses  # return here so no need to attempt the waiter with an extra 30 seconds
     # Adding a waiter to avoid:
     # An error occurred (DependencyViolation) when calling the DeleteSecurityGroup operation
     # waiter.wait(InstanceIds=['string',
@@ -250,10 +274,12 @@ def terminate_instances(ec2_resource, ec2_client, instance_ids):
             InstanceIds=instance_ids,
         )
     except WaiterError as waiter_err:
-        print(f'An error occurred when waiting for the EC2 instance to terminate, additional 30 second wait beginning. Error: {waiter_err}')
+        print(
+            f'An error occurred when waiting for the EC2 instance to terminate, additional 30 second wait beginning. Error: {waiter_err}')
         time.sleep(30)
 
     return responses
+
 
 def get_instance_availability_zone(ec2_resource, instance_id):
     """
@@ -262,6 +288,7 @@ def get_instance_availability_zone(ec2_resource, instance_id):
     Boto3 documentation for placement attributes of EC2 instance resources:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/instance/placement.html
 
+    :exception ClientError: Boto3 client error
     :param ec2_resource: EC2 resource handle
     :param instance_id: EC2 instance ID to find the availability zone for
     :return:Availability zone of the argument EC2 instance
@@ -274,6 +301,7 @@ def get_instance_availability_zone(ec2_resource, instance_id):
         # not possible that the instance isn't running as creating an instance includes a waiter with error handling
         print(f'Error in getting the availability zone of your instance: {client_err}')
         raise
+
 
 def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_object_details):
     """
@@ -291,17 +319,18 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
     Python documentation for the built-in open function:
     https://docs.python.org/3/library/functions.html#open
 
+    :exception OSError: Error when removing existing index document or creating the new one
     :param ec2_instance_id: EC2 instance ID to be displayed in the document
     :param ec2_instance_availability_zone: EC2 instance availability zone to be displayed in the document
     :param s3_object_details: Data returned from creation of an S3 object
     """
     # https://docs.python.org/3/library/os.html
     try:
-        if os.path.exists("index.html"): # since hard-coded, need to existence check
+        if os.path.exists("index.html"):  # since hard-coded, need to existence check
             os.remove("index.html")
     except OSError as os_err:
-        print(f"OS error when removing the existing index.html document, check permissions, running processes, and file path: {os_err}")
-
+        print(
+            f"OS error when removing the existing index.html document, check permissions, running processes, and file path: {os_err}")
 
     ec2_html_script = f"""
     <html>
@@ -323,8 +352,10 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
     try:
         with open("index.html", "w") as file:  # just with open and args
             file.write(ec2_html_script)
-    except OSError as os_err: # No index.html breaks the program, so raise (unlike being unable to delete the existing index)
-        raise OSError(f'OS error when creating the index.html document, check permissions, duplicates, and file path: {os_err}')
+    except OSError as os_err:  # No index.html breaks the program, so raise (unlike being unable to delete the existing index)
+        raise OSError(
+            f'OS error when creating the index.html document, check permissions, duplicates, and file path: {os_err}')
+
 
 def delete_index_document():
     """
@@ -332,12 +363,16 @@ def delete_index_document():
 
     Python documentation for the os module's remove() function:
     https://docs.python.org/3/library/os.html#os.remove
+
+    :exception OSError: Error when removing existing index document
     """
     try:
-        if os.path.exists("index.html"): # existence check
+        if os.path.exists("index.html"):  # existence check
             os.remove("index.html")
     except OSError as os_err:
-        raise OSError(f"OS error when deleting the index.html document, check permissions, running processes, and file path: {os_err}")
+        raise OSError(
+            f"OS error when deleting the index.html document, check permissions, running processes, and file path: {os_err}")
+
 
 def check_httpd_active(instance):
     """
@@ -350,6 +385,7 @@ def check_httpd_active(instance):
     Python documentation for the subprocess module:
     https://docs.python.org/3/library/subprocess.html
 
+    :exception subprocess.CalledProcessError: Error in SSH communication with EC2 instance
     :param instance: EC2 instance resource to be checked
     :return: True if the httpd service is active, False if not.
     """
@@ -366,13 +402,14 @@ def check_httpd_active(instance):
         ], text=True, capture_output=True)
 
         # "Active: active (running)" shows when actually running alongside PID, etc.
-        if result.stdout.find("Active: active (running)") > 0: # -1 == not found
+        if result.stdout.find("Active: active (running)") > 0:  # -1 == not found
             return True
 
         return False
     except subprocess.CalledProcessError as subprocess_err:
         print(f'Subprocess error when connecting to EC2 instance to check httpd status: {subprocess_err}')
         raise
+
 
 def transfer_index_to_ec2(instance):
     """
@@ -390,6 +427,8 @@ def transfer_index_to_ec2(instance):
     Python documentation for the subprocess.run() check option:
     https://docs.python.org/3.14/library/subprocess.html#subprocess.check
 
+    :exception FileNotFoundError: Couldn't find the index.html file
+    :exception subprocess.CalledProcessError: Error in SCP or SSH communication with EC2 instance
     :param instance: EC2 instance resource to receive index.html
     """
     # StrictHostKeyChecking=no is a workaround, without it the connection is refused.
@@ -406,7 +445,8 @@ def transfer_index_to_ec2(instance):
             f"ec2-user@{instance.public_ip_address}:"
         ], check=True)  # Silent fail without, continues on
     except FileNotFoundError as filenotfound_err:
-        raise FileNotFoundError(f'Could not find the index.html file in your system. Please check the file exists: {filenotfound_err}')
+        raise FileNotFoundError(
+            f'Could not find the index.html file in your system. Please check the file exists: {filenotfound_err}')
     except subprocess.CalledProcessError as subprocess_err:
         print(f'Subprocess error when transferring index.html to your instance: {subprocess_err}')
         raise
@@ -422,8 +462,10 @@ def transfer_index_to_ec2(instance):
             "sudo mv ~/index.html /var/www/html/index.html"
         ], check=True)
     except subprocess.CalledProcessError as subprocess_err:
-        print(f'Subprocess error when connecting to your instance to move index.html into Apache\'s path: {subprocess_err}')
+        print(
+            f'Subprocess error when connecting to your instance to move index.html into Apache\'s path: {subprocess_err}')
         raise
+
 
 def get_server_access_log(instance):
     """
@@ -437,10 +479,11 @@ def get_server_access_log(instance):
     Apache documentation for web server logs:
     https://httpd.apache.org/docs/2.4/logs.html
 
+    :exception subprocess.CalledProcessError: Error in SSH communication with EC2 instance
     :param instance: EC2 instance handle
     :return: Count of how many HTTP requests the server has received
     """
-    ctr = 0 # moved here so can be returned if there's an error
+    ctr = 0  # moved here so can be returned if there's an error
     try:
         result = subprocess.run([
             "ssh",
@@ -454,7 +497,7 @@ def get_server_access_log(instance):
         # [ec2-user@ip-172-31-24-80 log]$ sudo cat /var/log/httpd/access_log
         # X.X.X.X - - [25/Mar/2026:16:27:46 +0000] "GET / HTTP/1.1" 200 481 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
         # X.X.X.X - - [25/Mar/2026:16:27:47 +0000] "GET /favicon.ico HTTP/1.1" 404 236 "http://75.101.203.7/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
-        for _ in result.stdout.splitlines(): # Local variable 'line' value is not used
+        for _ in result.stdout.splitlines():  # Local variable 'line' value is not used
             ctr += 1
     except subprocess.CalledProcessError as subprocess_err:
         print(f'Subprocess error when connecting to your instance to count HTTP requests: {subprocess_err}')

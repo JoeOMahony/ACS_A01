@@ -1,9 +1,16 @@
+"""
+Script for CRUD operations and management of S3 objects, buckets, and other related resources.
+
+:author: Joe O'Mahony (W21788075)
+:date: 27/03/2026
+"""
 import time
 import requests
 import mimetypes
 from requests import HTTPError
 from urllib.error import URLError
 from botocore.exceptions import ClientError
+
 
 def create_bucket(s3_client, ec2_instance_id):
     """
@@ -46,12 +53,14 @@ def create_bucket(s3_client, ec2_instance_id):
     Boto3 documentation for s3_client.put_bucket_acl():
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_bucket_acl.html
 
+    :exception ClientError: Boto3 client error
+    :exception Exception: General error when creating an S3 bucket
     :param s3_client: S3 Client Handle
     :param ec2_instance_id: EC2 Instance ID used to form the bucket name
     :return: bucket dictionary representation
     """
     try:
-        bucket_name = 'joe-omahony-' + ec2_instance_id # since EC2 instance ID globally unique,
+        bucket_name = 'joe-omahony-' + ec2_instance_id  # since EC2 instance ID globally unique,
         # extremely unlikely that joe-omahony-ec2_instance_id is taken
 
         bucket = s3_client.create_bucket(
@@ -67,14 +76,14 @@ def create_bucket(s3_client, ec2_instance_id):
                     {'Key': 'Assignment', 'Value': 'Assignment01'}
                 ],
             },
-            ObjectLockEnabledForBucket=False, # Check later
-            ObjectOwnership = 'BucketOwnerPreferred',
+            ObjectLockEnabledForBucket=False,  # Check later
+            ObjectOwnership='BucketOwnerPreferred',
         )
 
         # could use s3 resource handle instead of below, but will stick with this to match the rest
-        waiter = s3_client.get_waiter('bucket_exists') # needed to avoid error with delete_public_access_block()
+        waiter = s3_client.get_waiter('bucket_exists')  # needed to avoid error with delete_public_access_block()
         waiter.wait(
-            Bucket = bucket_name,
+            Bucket=bucket_name,
         )
 
         s3_client.delete_public_access_block(
@@ -93,10 +102,12 @@ def create_bucket(s3_client, ec2_instance_id):
     # https://docs.python.org/3/tutorial/errors.html
     # create_bucket() is critical enough to raise an exception and stop execution
     except ClientError as client_err:
-        print(f'Error in S3 bucket configuration, check your permissions: {client_err}') # TypeError must convert to String
-        raise # this raises AWS' ClientError, I can't put text inside because Boto3 specifies mandatory arguments that I don't want
+        print(
+            f'Error in S3 bucket configuration, check your permissions: {client_err}')  # TypeError must convert to String
+        raise  # this raises AWS' ClientError, I can't put text inside because Boto3 specifies mandatory arguments that I don't want
     except Exception as err:
         raise Exception(f'General error when creating an S3 bucket: {err}')
+
 
 def get_image_object(obj_url_input):
     """
@@ -117,6 +128,9 @@ def get_image_object(obj_url_input):
     Python documentation for the urllib.request module:
     https://docs.python.org/3/library/urllib.request.html#module-urllib.request
 
+    :exception URLError: Error with getting provided URL
+    :exception HTTPError: Error with getting provided URL
+    :exception Exception: General error when getting image object
     :param obj_url_input: Image URL to be fetched or 'NONE' for the default image
     :return: Binary representation of the argument or default image for an S3 object
     """
@@ -124,19 +138,19 @@ def get_image_object(obj_url_input):
     # urllib.request.urlopen(url, data=None, [timeout, ]*, context=None)
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0'}
     fallback_obj_url_input = 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Waterford_Institute_of_Technology%2C_2021-06-01%2C_06.jpg'
-    timeout = 30 # "By default, requests do not time out unless a timeout value is set explicitly." [seconds]
+    timeout = 30  # "By default, requests do not time out unless a timeout value is set explicitly." [seconds]
     try:
-        if obj_url_input == 'NONE': # keyword for no URL to provide, use known good
+        if obj_url_input == 'NONE':  # keyword for no URL to provide, use known good
             obj_url_input = 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Waterford_Institute_of_Technology%2C_2021-06-01%2C_06.jpg'
 
         # https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy
         image = requests.get(obj_url_input, timeout=timeout, headers=headers).content
-    except URLError as url_err: # Raises URLError on protocol errors.
+    except URLError as url_err:  # Raises URLError on protocol errors.
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
         # image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
         print(f'You entered an invalid URL, will fallback to default image. Error: {url_err}')
 
-    except HTTPError as http_err: # Thrown if no user agent or site denied - urllib.error.HTTPError: HTTP Error 403: Forbidden
+    except HTTPError as http_err:  # Thrown if no user agent or site denied - urllib.error.HTTPError: HTTP Error 403: Forbidden
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
         print(f'You entered an invalid URL, will fallback to default image. Error: {http_err}')
 
@@ -146,6 +160,7 @@ def get_image_object(obj_url_input):
 
     return image
 
+
 def guess_mime_type(obj_url_input):
     """
     Uses MIME guesser to guess the argument URL's MIME type for S3 object display in index.html document.
@@ -153,6 +168,7 @@ def guess_mime_type(obj_url_input):
     Python documentation for the MIME type guesser module's guess_type function:
     https://docs.python.org/3/library/mimetypes.html#mimetypes.guess_type
 
+    :exception Exception: General exception with determining MIME type
     :param obj_url_input: Image URL to be fetched or 'NONE' for the default image
     :return: Guessed MIME type or 'image/jpg' (type of default image)
     """
@@ -163,7 +179,7 @@ def guess_mime_type(obj_url_input):
 
     # The default image is image/jpg, so this is used as the fallback
     if mime_type is None:
-        mime_type = 'image/jpg' # type is None if the type can't be guessed (no or unknown suffix)
+        mime_type = 'image/jpg'  # type is None if the type can't be guessed (no or unknown suffix)
 
     try:
         if not str(mime_type).startswith('image/'):
@@ -172,6 +188,7 @@ def guess_mime_type(obj_url_input):
         print(f'Default image will be used, an exception occurred when guessing the MIME type from your URL: {err}')
         mime_type = 'image/jpg'
     return mime_type
+
 
 def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
     """
@@ -186,6 +203,8 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
     Boto3 documentating for upload files (showed me MIME types needed + binary read with open):
     https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
 
+    :exception Exception: General exception with putting object in bucket
+    :exception ClientError: Boto3 client error
     :param mime_type: MIME type of the image
     :param s3_client: S3 client handle
     :param bucket_name: S3 bucket to add the object to
@@ -196,7 +215,8 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
     try:
         # Since S3 bucket name also uses 'joe-omahony-' + ec2_instance_id, I could reactor this
         # TypeError: can only concatenate str (not "int") to str -> forgot not using f-string
-        object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(time.time_ns()) # max length for obj names is 1024
+        object_name = 'joe-omahony-' + ec2_instance_id + '-' + 'obj-' + str(
+            time.time_ns())  # max length for obj names is 1024
 
         s3_client.put_object(
             ACL='public-read',
@@ -205,7 +225,7 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
             Key=object_name,
             # REFERENCE: Full StackOverflow reference in create_bucket() function at the top
             Tagging='CreatedBy=JoeOMahony&Module=AutomatedCloudServices&Assignment=AutomatedCloudServices',
-            ContentType=mime_type, # MIME type required here for local file upload
+            ContentType=mime_type,  # MIME type required here for local file upload
         )
 
         # Adding as I need the key
@@ -215,10 +235,12 @@ def put_object(s3_client, bucket_name, ec2_instance_id, image, mime_type):
         }
         return obj_details
     except ClientError as client_err:
-        print(f'A user configuration error occurred when putting the object in the bucket, check your permissions: {client_err}')
+        print(
+            f'A user configuration error occurred when putting the object in the bucket, check your permissions: {client_err}')
         raise
     except Exception as err:
         raise Exception(f'A general error occurred when putting the object in the bucket: {err}')
+
 
 def list_all_buckets(s3_client):
     """
@@ -227,6 +249,8 @@ def list_all_buckets(s3_client):
     Boto3 documentation for s3_client.list_buckets() function:
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/list_buckets.html
 
+    :exception Exception: General exception with listing all buckets
+    :exception ClientError: Boto3 client error
     :param s3_client: S3 client handle
     :return: List of dictionary bucket representations
     """
@@ -237,7 +261,7 @@ def list_all_buckets(s3_client):
         if response['Buckets']:
             return response['Buckets']
         else:
-            print('No buckets found') # Something has went wrong for this to be called without buckets, print warning
+            print('No buckets found')  # Something has went wrong for this to be called without buckets, print warning
             return []
     # I don't view list_all_buckets() as critical enough to stop program execution, so no raise
     except ClientError as client_err:
@@ -247,6 +271,7 @@ def list_all_buckets(s3_client):
         print(f'A general error occurred when listing all S3 buckets: {err}')
         print('Please view the buckets manually on the AWS website')
 
+
 def delete_objects(s3_client, bucket_name):
     """
     Deletes all objects in the argument bucket.
@@ -254,6 +279,8 @@ def delete_objects(s3_client, bucket_name):
     Boto3 documentation for s3_client.delete_objects() function:
     https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/delete_object.html
 
+    :exception Exception: General exception with deleting all objects in bucket
+    :exception ClientError: Boto3 client error
     :param s3_client: S3 client handle
     :param bucket_name: S3 bucket name to delete all objects from
     :return: True if all objects were successfully deleted, error thrown otherwise
@@ -272,7 +299,7 @@ def delete_objects(s3_client, bucket_name):
                 Bucket=bucket_name,
                 Key=bucket_object['Key'],
             )
-        return True # verifies that delete_bucket() can run
+        return True  # verifies that delete_bucket() can run
     except ClientError as client_err:
         print(f'An error occurred when deleting all objects in the bucket, check your permissions: {client_err}')
         print('Please delete the objects manually on the AWS website')
@@ -282,10 +309,13 @@ def delete_objects(s3_client, bucket_name):
         print('Please delete the objects manually on the AWS website')
         return False
 
+
 def delete_bucket(s3_client, bucket_name):
     """
     Deletes the argument bucket after deleting all objects within.
 
+    :exception Exception: General exception with deleting bucket
+    :exception ClientError: Boto3 client error
     :param s3_client: S3 client handle
     :param bucket_name: S3 bucket name to be deleted, including all objects within
     :return: True if all objects and the bucket were deleted, False if not.
@@ -294,15 +324,15 @@ def delete_bucket(s3_client, bucket_name):
         delete_all_objects = delete_objects(s3_client, bucket_name)
 
         if delete_all_objects:
-            s3_client.delete_bucket( # returns None
-                Bucket = bucket_name,
+            s3_client.delete_bucket(  # returns None
+                Bucket=bucket_name,
             )
 
             all_buckets = list_all_buckets(s3_client)
             #   'Buckets': [
             #         {
             #             'Name': 'string', ...
-            for bucket in all_buckets: # list
+            for bucket in all_buckets:  # list
                 if bucket['Name'] == bucket_name:
                     return False
 
@@ -310,7 +340,8 @@ def delete_bucket(s3_client, bucket_name):
 
         return False
     except ClientError as client_err:
-        print(f'An error occurred when deleting the bucket, check the bucket is empty and your permissions: {client_err}')
+        print(
+            f'An error occurred when deleting the bucket, check the bucket is empty and your permissions: {client_err}')
         print('Please delete the bucket manually on the AWS website')
         return False
     except Exception as err:

@@ -1,3 +1,11 @@
+"""
+Main script for ACS A01.
+
+Responsible for calling CRUD operations on EC2 and S3 resources, as well as key-pairs and remote server operations.
+
+:author: Joe O'Mahony (W21788075)
+:date: 27/03/2026
+"""
 import sys
 import time
 import webbrowser
@@ -7,12 +15,14 @@ import s3
 import key_pair as kp
 from botocore.exceptions import ClientError
 
-divider = '==========================' * 3 # Feel free to change
+divider = '==========================' * 3  # Feel free to change
+
 
 def get_ec2_handles():
     """
     Gets EC2 client and resource handles from Boto3
 
+    :exception ClientError: Boto3 client error
     :return: Boto3 client and resource handles
     """
     try:
@@ -20,13 +30,16 @@ def get_ec2_handles():
         ec2c = boto3.client('ec2', region_name='us-east-1')
         return ec2r, ec2c
     except ClientError as client_err:
-        print(f'Unable to get EC2 client and resource handle from Boto3, check your config and connection: {client_err}')
+        print(
+            f'Unable to get EC2 client and resource handle from Boto3, check your config and connection: {client_err}')
         raise
+
 
 def get_s3_handles():
     """
     Gets S3 client handle from Boto3
 
+    :exception ClientError: Boto3 client error
     :return: S3 client handle
     """
     try:
@@ -35,6 +48,7 @@ def get_s3_handles():
         print(
             f'Unable to get S3 client handle from Boto3, check your config and connection: {client_err}')
         raise
+
 
 def create_key_pair(ec2_client):
     """
@@ -51,6 +65,7 @@ def create_key_pair(ec2_client):
     print('\tSuccessfully created local key with name: JOMahony_A01_RSA.pem')
     print(divider)
     return key_name
+
 
 def create_ec2_instance(ec2_client, ec2_resource, key_name):
     """
@@ -69,6 +84,7 @@ def create_ec2_instance(ec2_client, ec2_resource, key_name):
     print(divider)
     return ec2_instance_id, ec2_instance_availability_zone
 
+
 def create_s3_bucket(s3_client, ec2_instance_id):
     """
     Creates an S3 bucket
@@ -83,6 +99,7 @@ def create_s3_bucket(s3_client, ec2_instance_id):
     print(divider)
     return s3_bucket
 
+
 def create_s3_object(s3_client, s3_bucket, ec2_instance_id):
     """
     Creates an S3 object inside the argument bucket
@@ -90,10 +107,12 @@ def create_s3_object(s3_client, s3_bucket, ec2_instance_id):
     :param s3_client: S3 client handle
     :param s3_bucket: S3 bucket handle
     :param ec2_instance_id: EC2 instance ID
+    :exception EOFError: EOF Error when reading user URL for the image URL
     :return: Dictionary representation of the created S3 object
     """
     try:
-        obj_url_input = input( # If the user hits EOF (*nix: Ctrl-D, Windows: Ctrl-Z+Return), raise EOFError. On *nix systems, readline is used if available.
+        obj_url_input = input(
+            # If the user hits EOF (*nix: Ctrl-D, Windows: Ctrl-Z+Return), raise EOFError. On *nix systems, readline is used if available.
             "Please enter an image URL to be displayed on the website. Enter NONE to use the default image => ").strip()
     except EOFError as eof_err:
         print(f'You entered EOF, using the default image. Error: {eof_err}')
@@ -109,6 +128,7 @@ def create_s3_object(s3_client, s3_bucket, ec2_instance_id):
 
     return s3_object_details
 
+
 def configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availability_zone, s3_object_details):
     """
     Configures the remote instance with a dynamic index.html file
@@ -117,6 +137,7 @@ def configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availa
     :param ec2_instance_id:  EC2 instance ID
     :param ec2_instance_availability_zone:  EC2 instance availability zone
     :param s3_object_details:  Dictionary representation of the created S3 object
+    :exception ClientError: Boto3 client error
     :return: EC2 instance resource
     """
     print('Beginning remote configuration...')
@@ -125,7 +146,8 @@ def configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availa
         instance = ec2_resource.Instance(ec2_instance_id)
         instance.reload()
         ctr = 0
-        while not ec2.check_httpd_active(instance):  # in here because I was attempting to keep all print calls in this script
+        while not ec2.check_httpd_active(
+                instance):  # in here because I was attempting to keep all print calls in this script
             ctr += 1
             print(f"\t[{ctr}] Waiting for the web server to come online (refreshes every 15 seconds)")
             time.sleep(15)
@@ -145,6 +167,7 @@ def display_web_server_details(instance):
     Displays the public IP and URL of the web server, then asks the user if they'd like it
     automatically opened in a new tab in their browser.
 
+    :exception EOFError: EOF Error when reading user input for automatically opening created web page
     :param instance: EC2 instance resource
     """
     print('Web server ready for access...')
@@ -161,11 +184,13 @@ def display_web_server_details(instance):
         webbrowser.open_new_tab(f"http://{instance.public_ip_address}")
     print(divider)
 
+
 def display_log_analysis(instance):
     """
     Dialogue option that allows users to see how many HTTP requests the web server
     received.
 
+    :exception EOFError: EOF Error when reading user input for running log analysis
     :param instance: EC2 instance resource
     """
     print('Log analysis started...')
@@ -182,9 +207,12 @@ def display_log_analysis(instance):
         elif user_input.strip().upper() == 'R':
             print('Request counter: ', ec2.get_server_access_log(instance))
 
+
 def resource_deletion_option():
     """
     Displays the option to delete all resources created for this assignment until the user confirms
+
+    :exception EOFError: EOF Error when reading user input for assignment resource deletion
     """
     end_flag = False
     while not end_flag:
@@ -197,10 +225,12 @@ def resource_deletion_option():
             break
     print(divider)
 
+
 def delete_s3_resources(s3_client, s3_bucket):
     """
     Deletes the S3 object and bucket created for this assignment
 
+    :exception ClientError: Boto3 client error
     :param s3_client: S3 client handle
     :param s3_bucket: Dictionary representation of the S3 bucket
     """
@@ -217,6 +247,7 @@ def delete_s3_resources(s3_client, s3_bucket):
     except ClientError as client_err:
         print(f'Unable to list objects in your S3 bucket. Error: {client_err}')
 
+
 def delete_ec2_instance(ec2_client, ec2_resource, ec2_instance_id):
     """
     Deletes the EC2 instance created for this assignment
@@ -231,10 +262,12 @@ def delete_ec2_instance(ec2_client, ec2_resource, ec2_instance_id):
     print('\tSuccessfully terminated instance with ID: ', ec2_instance_id)
     print(divider)
 
+
 def delete_security_group(ec2_client):
     """
     Deletes the security group created for this assignment
 
+    :exception ClientError: Boto3 client error
     :param ec2_client: EC2 client handle
     """
     print('Deleting security group...')
@@ -245,8 +278,10 @@ def delete_security_group(ec2_client):
     except ClientError:  # TypeError: 'ClientError' object is not subscriptable
         print('\tFailed to delete security group with name: EC2_public_access')
         print('\tPlease ensure there are no resources previously created by this program tied to this security group')
-        print('\t\tThis error is thrown when this program is run after previously being interrupted and unable to remove resources')
+        print(
+            '\t\tThis error is thrown when this program is run after previously being interrupted and unable to remove resources')
     print(divider)
+
 
 def delete_key_pair(ec2_client, key_name):
     """
@@ -264,6 +299,7 @@ def delete_key_pair(ec2_client, key_name):
         print('\tSuccessfully deleted local key with name: JOMahony_A01_RSA.pem')
     print(divider)
 
+
 def delete_index_document():
     """
     Deletes the index.html document created for this assignment
@@ -274,12 +310,14 @@ def delete_index_document():
         print('\tSuccessfully deleted index.html document')
     print(divider)
 
+
 def display_program_completion():
     """
     Displays the program completion message
     """
     print('Program complete...')
     print(divider)
+
 
 def main():
     """
@@ -302,7 +340,8 @@ def main():
     s3_object_details = create_s3_object(s3_client, s3_bucket, ec2_instance_id)
 
     # Remote configuration
-    instance = configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availability_zone, s3_object_details)
+    instance = configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availability_zone,
+                                         s3_object_details)
 
     # Display web server details
     display_web_server_details(instance)
@@ -333,6 +372,7 @@ def main():
 
     # Exit program
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

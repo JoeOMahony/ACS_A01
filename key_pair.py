@@ -1,6 +1,13 @@
+"""
+Script for CRUD operations and management of the local and remote RSA key-pair.
+
+:author: Joe O'Mahony (W21788075)
+:date: 27/03/2026
+"""
 import os
 import time
 from botocore.exceptions import ClientError
+
 
 def create_key_pair(ec2_client):
     """
@@ -17,10 +24,12 @@ def create_key_pair(ec2_client):
     Boto3 documentation for the OS library, including chmod call:
     https://docs.python.org/3/library/os.html
 
+    :exception ClientError: Boto3 client error
+    :exception OSError: Unable to write or change local key-pair
     :param ec2_client: EC2 client handle
     :return: dict Dictionary describing the key-pair (note KeyName)
     """
-    key_name = f"acs_a01_jomahony_{time.time_ns()}" # using nanoseconds from Epoch to make each instance key unique
+    key_name = f"acs_a01_jomahony_{time.time_ns()}"  # using nanoseconds from Epoch to make each instance key unique
     try:
         response = ec2_client.create_key_pair(
             KeyName=key_name,
@@ -56,11 +65,12 @@ def create_key_pair(ec2_client):
         # https://docs.python.org/3/library/os.html
         # octal is used for chmod permissions
         # Key permissions need to be owner read only for EC2 connection or refused
-        os.chmod('JOMahony_A01_RSA.pem', 0o400) #
+        os.chmod('JOMahony_A01_RSA.pem', 0o400)  #
     except OSError as os_err:
         raise OSError(f'Unable to change local key-pair permissions, check local file permissions: {os_err}')
 
     return response
+
 
 def delete_remote_key_pair(ec2_client, key_name):
     """
@@ -69,6 +79,7 @@ def delete_remote_key_pair(ec2_client, key_name):
     Boto3 EC2.Client.delete_key_pair(**kwargs) documentationL
     https://docs.aws.amazon.com/boto3/latest/reference/services/ec2/client/delete_key_pair.html
 
+    :exception ClientError: Boto3 client error
     :param ec2_client: EC2 client handle
     :param key_name: Key name of the key-pair to be deleted
     :return: response Dictionary containing success Boolean and KeyPairId String
@@ -77,22 +88,25 @@ def delete_remote_key_pair(ec2_client, key_name):
         response = ec2_client.delete_key_pair(
             KeyName=key_name,
         )
-        return response # dict Return Boolean KeyPairId String
+        return response  # dict Return Boolean KeyPairId String
     except ClientError as client_err:
         print(f'Unable to delete remote key-pair, please use the AWS website to delete manually. Error: {client_err}')
         # no raise, not critical
-        return {'Return': False} # 'Return': True|False,
+        return {'Return': False}  # 'Return': True|False,
+
 
 def delete_local_key_pair():
     """
     Deletes the local key-pair named JOMahony_A01_RSA.pem if it exists.
 
+    :exception OSError: Unable to delete local key-pair
     :return: None for success
     """
     try:
         if os.path.exists("JOMahony_A01_RSA.pem"):
             return os.remove('JOMahony_A01_RSA.pem')
     except OSError as os_err:
-        print(f'Unable to delete local key-pair, check file permissions and if it exists. Please delete manually. Error: {os_err}')
+        print(
+            f'Unable to delete local key-pair, check file permissions and if it exists. Please delete manually. Error: {os_err}')
 
-    return None # If it doesn't exist, return success (this doesn't run when error)
+    return None  # If it doesn't exist, return success (this doesn't run when error)
