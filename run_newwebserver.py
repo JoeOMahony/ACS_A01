@@ -15,9 +15,13 @@ def get_ec2_handles():
 
     :return: Boto3 client and resource handles
     """
-    ec2r = boto3.resource('ec2', region_name='us-east-1')
-    ec2c = boto3.client('ec2', region_name='us-east-1')
-    return ec2r, ec2c
+    try:
+        ec2r = boto3.resource('ec2', region_name='us-east-1')
+        ec2c = boto3.client('ec2', region_name='us-east-1')
+        return ec2r, ec2c
+    except ClientError as client_err:
+        print(f'Unable to get EC2 client and resource handle from Boto3, check your config and connection: {client_err}')
+        raise
 
 def get_s3_handles():
     """
@@ -25,7 +29,12 @@ def get_s3_handles():
 
     :return: S3 client handle
     """
-    return boto3.client('s3', region_name='us-east-1')
+    try:
+        return boto3.client('s3', region_name='us-east-1')
+    except ClientError as client_err:
+        print(
+            f'Unable to get S3 client handle from Boto3, check your config and connection: {client_err}')
+        raise
 
 def create_key_pair(ec2_client):
     """
@@ -83,8 +92,12 @@ def create_s3_object(s3_client, s3_bucket, ec2_instance_id):
     :param ec2_instance_id: EC2 instance ID
     :return: Dictionary representation of the created S3 object
     """
-    obj_url_input = input(
-        "Please enter an image URL to be displayed on the website. Enter NONE to use the default image => ").strip()
+    try:
+        obj_url_input = input( # If the user hits EOF (*nix: Ctrl-D, Windows: Ctrl-Z+Return), raise EOFError. On *nix systems, readline is used if available.
+            "Please enter an image URL to be displayed on the website. Enter NONE to use the default image => ").strip()
+    except EOFError as eof_err:
+        print(f'You entered EOF, using the default image. Error: {eof_err}')
+        obj_url_input = 'None'
     image = s3.get_image_object(obj_url_input)
     mime_type = s3.guess_mime_type(obj_url_input)
 
@@ -107,20 +120,25 @@ def configure_remote_instance(ec2_resource, ec2_instance_id, ec2_instance_availa
     :return: EC2 instance resource
     """
     print('Beginning remote configuration...')
-    ec2.create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_object_details)
-    instance = ec2_resource.Instance(ec2_instance_id)
-    instance.reload()
-    ctr = 0
-    while not ec2.check_httpd_active(instance):  # in here because I'm keeping all print calls in this script
-        ctr += 1
-        print(f"\t[{ctr}] Waiting for the web server to come online (refreshes every 15 seconds)")
-        time.sleep(15)
-        if ctr > 40:
-            break
-    ec2.transfer_index_to_ec2(instance)
-    print('\tSuccessfully completed remote configuration')
-    print(divider)
-    return instance
+    try:
+        ec2.create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_object_details)
+        instance = ec2_resource.Instance(ec2_instance_id)
+        instance.reload()
+        ctr = 0
+        while not ec2.check_httpd_active(instance):  # in here because I was attempting to keep all print calls in this script
+            ctr += 1
+            print(f"\t[{ctr}] Waiting for the web server to come online (refreshes every 15 seconds)")
+            time.sleep(15)
+            if ctr > 40:
+                break
+        ec2.transfer_index_to_ec2(instance)
+        print('\tSuccessfully completed remote configuration')
+        print(divider)
+        return instance
+    except ClientError as client_err:
+        print(f'Unable to get EC2 instance resource object. Error: {client_err}')
+        raise
+
 
 def display_web_server_details(instance):
     """
@@ -134,7 +152,11 @@ def display_web_server_details(instance):
     # noinspection HttpUrlsUsage
     print(f"\tWeb address: http://{instance.public_ip_address}")
     # https://docs.python.org/3/library/webbrowser.html
-    auto_open_browser = input('Would you like this page automatically opened in your browser? (Y/N) => ')
+    try:
+        auto_open_browser = input('Would you like this page automatically opened in your browser? (Y/N) => ')
+    except EOFError as eof_err:
+        print(f'You entered EOF, the browser won\'t open automatically. Error: {eof_err}')
+        auto_open_browser = 'N'
     if auto_open_browser.strip().upper() == 'Y':
         webbrowser.open_new_tab(f"http://{instance.public_ip_address}")
     print(divider)
@@ -150,7 +172,11 @@ def display_log_analysis(instance):
     print('\tEnter R to refresh')
     print('\tEnter Q to quit')
     while True:
-        user_input = input()
+        try:
+            user_input = input()
+        except EOFError as eof_err:
+            print(f'You entered EOF, quitting log analysis. Error: {eof_err}')
+            user_input = 'Q'
         if user_input.strip().upper() == 'Q':
             return False
         elif user_input.strip().upper() == 'R':
@@ -162,7 +188,11 @@ def resource_deletion_option():
     """
     end_flag = False
     while not end_flag:
-        user_input = input('To delete all resources created for this assignment, enter DELETE => ')
+        try:
+            user_input = input('To delete all resources created for this assignment, enter DELETE => ')
+        except EOFError as eof_err:
+            print(f'You entered EOF, deleting all resources created for this assignment. Error: {eof_err}')
+            user_input = 'DELETE'
         if user_input.strip().upper() == 'DELETE':
             break
     print(divider)
@@ -175,14 +205,17 @@ def delete_s3_resources(s3_client, s3_bucket):
     :param s3_bucket: Dictionary representation of the S3 bucket
     """
     print('Deleting S3 bucket and objects...')
-    bucket_name = s3_bucket['BucketName']
-    bucket_objects = s3_client.list_objects(
-        Bucket=bucket_name,
-    )
-    if s3.delete_bucket(s3_client, s3_bucket['BucketName']):
-        print('\tSuccessfully deleted bucket object with key: ' + str(bucket_objects['Contents'][0]['Key']))
-        print('\tSuccessfully deleted bucket with name: ' + bucket_name)
-    print(divider)
+    try:
+        bucket_name = s3_bucket['BucketName']
+        bucket_objects = s3_client.list_objects(
+            Bucket=bucket_name,
+        )
+        if s3.delete_bucket(s3_client, s3_bucket['BucketName']):
+            print('\tSuccessfully deleted bucket object with key: ' + str(bucket_objects['Contents'][0]['Key']))
+            print('\tSuccessfully deleted bucket with name: ' + bucket_name)
+        print(divider)
+    except ClientError as client_err:
+        print(f'Unable to list objects in your S3 bucket. Error: {client_err}')
 
 def delete_ec2_instance(ec2_client, ec2_resource, ec2_instance_id):
     """

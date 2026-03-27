@@ -51,7 +51,8 @@ def create_bucket(s3_client, ec2_instance_id):
     :return: bucket dictionary representation
     """
     try:
-        bucket_name = 'joe-omahony-' + ec2_instance_id
+        bucket_name = 'joe-omahony-' + ec2_instance_id # since EC2 instance ID globally unique,
+        # extremely unlikely that joe-omahony-ec2_instance_id is taken
 
         bucket = s3_client.create_bucket(
             # ACL='public-read' (InvalidBucketAclWithObjectOwnership)
@@ -133,15 +134,15 @@ def get_image_object(obj_url_input):
     except URLError as url_err: # Raises URLError on protocol errors.
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
         # image = 'http://www.setu.ie/imager/ctas/35068/Cork-Road-Campus-Waterford-3_a1dcb81403a2f417e019929f519bbb18.jpg?width=360'
-        print(f'A URL error occurred with your link, will fallback to default image. Error: {url_err}')
+        print(f'You entered an invalid URL, will fallback to default image. Error: {url_err}')
 
     except HTTPError as http_err: # Thrown if no user agent or site denied - urllib.error.HTTPError: HTTP Error 403: Forbidden
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
-        print(f'An HTTP error occurred, will fallback to default image. Error: {http_err}')
+        print(f'You entered an invalid URL, will fallback to default image. Error: {http_err}')
 
     except Exception as err:
         image = requests.get(fallback_obj_url_input, timeout=timeout, headers=headers).content
-        print(f'An HTTP error occurred, will fallback to default image. Error: {err}')
+        print(f'Something went wrong, will fallback to default image. Error: {err}')
 
     return image
 

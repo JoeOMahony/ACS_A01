@@ -52,6 +52,7 @@ def get_default_vpc_id(ec2_client):
         return default_vpc_id
     except IndexError as index_err:
         print(f'There is no default VPC on your account. You must have a default VPC on your account to use this program. Error: {index_err}')
+        raise
     except ClientError as client_err:
         print(f'Error in getting default VPC ID, check AWS permissions. Error: {client_err}')
         raise # no default_vpc_id means no security group created, so major
@@ -299,7 +300,7 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
         if os.path.exists("index.html"): # since hard-coded, need to existence check
             os.remove("index.html")
     except OSError as os_err:
-        raise OSError(f"OS error when removing the existing index.html document, check permissions, running processes, and file path: {os_err}")
+        print(f"OS error when removing the existing index.html document, check permissions, running processes, and file path: {os_err}")
 
 
     ec2_html_script = f"""
@@ -322,8 +323,8 @@ def create_index_document(ec2_instance_id, ec2_instance_availability_zone, s3_ob
     try:
         with open("index.html", "w") as file:  # just with open and args
             file.write(ec2_html_script)
-    except OSError as os_err:
-        print(f'OS error when creating the index.html document, check permissions, duplicates, and file path: {os_err}')
+    except OSError as os_err: # No index.html breaks the program, so raise (unlike being unable to delete the existing index)
+        raise OSError(f'OS error when creating the index.html document, check permissions, duplicates, and file path: {os_err}')
 
 def delete_index_document():
     """
@@ -394,25 +395,35 @@ def transfer_index_to_ec2(instance):
     # StrictHostKeyChecking=no is a workaround, without it the connection is refused.
     # In the CLI, you need to confirm whether or not to add the host key on first connection, but I couldn't just run
     # another subprocess with a 'yes' argument and continue on.
-    subprocess.run([
-        "scp",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-i",
-        "JOMahony_A01_RSA.pem",
-        "index.html",
-        f"ec2-user@{instance.public_ip_address}:"
-    ], check=True)  # Silent fail without, continues on
+    try:
+        subprocess.run([
+            "scp",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-i",
+            "JOMahony_A01_RSA.pem",
+            "index.html",
+            f"ec2-user@{instance.public_ip_address}:"
+        ], check=True)  # Silent fail without, continues on
+    except FileNotFoundError as filenotfound_err:
+        raise FileNotFoundError(f'Could not find the index.html file in your system. Please check the file exists: {filenotfound_err}')
+    except subprocess.CalledProcessError as subprocess_err:
+        print(f'Subprocess error when transferring index.html to your instance: {subprocess_err}')
+        raise
 
-    subprocess.run([
-        "ssh",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-i",
-        "JOMahony_A01_RSA.pem",
-        f"ec2-user@{instance.public_ip_address}",
-        "sudo mv ~/index.html /var/www/html/index.html"
-    ], check=True)
+    try:
+        subprocess.run([
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-i",
+            "JOMahony_A01_RSA.pem",
+            f"ec2-user@{instance.public_ip_address}",
+            "sudo mv ~/index.html /var/www/html/index.html"
+        ], check=True)
+    except subprocess.CalledProcessError as subprocess_err:
+        print(f'Subprocess error when connecting to your instance to move index.html into Apache\'s path: {subprocess_err}')
+        raise
 
 def get_server_access_log(instance):
     """
@@ -429,21 +440,23 @@ def get_server_access_log(instance):
     :param instance: EC2 instance handle
     :return: Count of how many HTTP requests the server has received
     """
-    result = subprocess.run([
-        "ssh",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-i",
-        "JOMahony_A01_RSA.pem",
-        f"ec2-user@{instance.public_ip_address}",
-        "sudo cat /var/log/httpd/access_log"
-    ], text=True, capture_output=True)
-    # [ec2-user@ip-172-31-24-80 log]$ sudo cat /var/log/httpd/access_log
-    # X.X.X.X - - [25/Mar/2026:16:27:46 +0000] "GET / HTTP/1.1" 200 481 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
-    # X.X.X.X - - [25/Mar/2026:16:27:47 +0000] "GET /favicon.ico HTTP/1.1" 404 236 "http://75.101.203.7/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
-
-    ctr = 0
-    for line in result.stdout.splitlines():
-        ctr += 1
+    ctr = 0 # moved here so can be returned if there's an error
+    try:
+        result = subprocess.run([
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-i",
+            "JOMahony_A01_RSA.pem",
+            f"ec2-user@{instance.public_ip_address}",
+            "sudo cat /var/log/httpd/access_log"
+        ], text=True, capture_output=True)
+        # [ec2-user@ip-172-31-24-80 log]$ sudo cat /var/log/httpd/access_log
+        # X.X.X.X - - [25/Mar/2026:16:27:46 +0000] "GET / HTTP/1.1" 200 481 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
+        # X.X.X.X - - [25/Mar/2026:16:27:47 +0000] "GET /favicon.ico HTTP/1.1" 404 236 "http://75.101.203.7/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0"
+        for _ in result.stdout.splitlines(): # Local variable 'line' value is not used
+            ctr += 1
+    except subprocess.CalledProcessError as subprocess_err:
+        print(f'Subprocess error when connecting to your instance to count HTTP requests: {subprocess_err}')
 
     return ctr
